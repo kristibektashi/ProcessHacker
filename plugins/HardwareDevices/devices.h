@@ -1241,7 +1241,7 @@ VOID RaplDeviceSysInfoInitializing(
 // Undocumented device properties (Win10 only)
 DEFINE_DEVPROPKEY(DEVPKEY_Gpu_Luid, 0x60b193cb, 0x5276, 0x4d0f, 0x96, 0xfc, 0xf1, 0x73, 0xab, 0xad, 0x3e, 0xc6, 2); // DEVPROP_TYPE_UINT64
 DEFINE_DEVPROPKEY(DEVPKEY_Gpu_PhysicalAdapterIndex, 0x60b193cb, 0x5276, 0x4d0f, 0x96, 0xfc, 0xf1, 0x73, 0xab, 0xad, 0x3e, 0xc6, 3); // DEVPROP_TYPE_UINT32
-DEFINE_GUID(GUID_COMPUTE_DEVICE_ARRIVAL, 0x1024e4c9, 0x47c9, 0x48d3, 0xb4, 0xa8, 0xf9, 0xdf, 0x78, 0x52, 0x3b, 0x53);
+DEFINE_GUID(GUID_COMPUTE_DEVICE_ARRIVAL, 0x1024E4C9, 0x47C9, 0x48D3, 0xB4, 0xA8, 0xF9, 0xDF, 0x78, 0x52, 0x3B, 0x53);
 
 typedef struct _DV_GPU_ID
 {
@@ -1487,7 +1487,8 @@ BOOLEAN GraphicsQueryDeviceInterfaceLuid(
 _Success_(return)
 BOOLEAN GraphicsQueryDeviceInterfaceAdapterIndex(
     _In_ PCWSTR DeviceInterface,
-    _Out_ PULONG PhysicalAdapterIndex
+    _Out_ PULONG PhysicalAdapterIndex,
+    _Out_opt_ PGUID DeviceClassGuid
     );
 
 PPH_LIST GraphicsQueryDeviceNodeList(

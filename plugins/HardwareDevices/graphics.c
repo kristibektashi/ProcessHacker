@@ -589,13 +589,15 @@ BOOLEAN GraphicsQueryDeviceInterfaceLuid(
 _Success_(return)
 BOOLEAN GraphicsQueryDeviceInterfaceAdapterIndex(
     _In_ PCWSTR DeviceInterface,
-    _Out_ PULONG PhysicalAdapterIndex
+    _Out_ PULONG PhysicalAdapterIndex,
+    _Out_opt_ PGUID DeviceClassGuid
     )
 {
     DEVPROPTYPE devicePropertyType;
     DEVINST deviceInstanceHandle;
     ULONG deviceInstanceIdLength = MAX_DEVICE_ID_LEN;
     WCHAR deviceInstanceId[MAX_DEVICE_ID_LEN];
+    ULONG deviceClassGuidLength = sizeof(GUID);
 
     if (CM_Get_Device_Interface_Property(
         DeviceInterface,
@@ -616,6 +618,21 @@ BOOLEAN GraphicsQueryDeviceInterfaceAdapterIndex(
         ) != CR_SUCCESS)
     {
         return FALSE;
+    }
+
+    if (DeviceClassGuid)
+    {
+        if (CM_Get_DevNode_Property(
+            deviceInstanceHandle,
+            &DEVPKEY_Device_ClassGuid,
+            &devicePropertyType,
+            (PBYTE)DeviceClassGuid,
+            &deviceClassGuidLength,
+            0
+            ) != CR_SUCCESS)
+        {
+            return FALSE;
+        }
     }
 
     if (NetWindowsVersion >= WINDOWS_10)

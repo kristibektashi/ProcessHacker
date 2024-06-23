@@ -11,6 +11,7 @@
  */
 
 #include "exttools.h"
+#include <devguid.h>
 #include <cfgmgr32.h>
 #include <ntddvdeo.h>
 #include <d3d11.h>
@@ -677,29 +678,61 @@ BOOLEAN EtpInitializeD3DStatistics(
     D3DKMT_QUERYSTATISTICS queryStatistics;
     D3DKMT_ADAPTER_PERFDATACAPS perfCaps;
 
-    if (CM_Get_Device_Interface_List_Size(
-        &deviceInterfaceListLength,
-        (PGUID)&GUID_DISPLAY_DEVICE_ARRIVAL,
-        NULL,
-        CM_GET_DEVICE_INTERFACE_LIST_PRESENT
-        ) != CR_SUCCESS)
+    if (PhWindowsVersion >= WINDOWS_10)
     {
-        return FALSE;
+        if (CM_Get_Device_Interface_List_Size(
+            &deviceInterfaceListLength,
+            (PGUID)&GUID_COMPUTE_DEVICE_ARRIVAL,
+            NULL,
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT
+            ) != CR_SUCCESS)
+        {
+            return FALSE;
+        }
+    }
+    else
+    {
+        if (CM_Get_Device_Interface_List_Size(
+            &deviceInterfaceListLength,
+            (PGUID)&GUID_DISPLAY_DEVICE_ARRIVAL,
+            NULL,
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT
+            ) != CR_SUCCESS)
+        {
+            return FALSE;
+        }
     }
 
     deviceInterfaceList = PhAllocate(deviceInterfaceListLength * sizeof(WCHAR));
     memset(deviceInterfaceList, 0, deviceInterfaceListLength * sizeof(WCHAR));
 
-    if (CM_Get_Device_Interface_List(
-        (PGUID)&GUID_DISPLAY_DEVICE_ARRIVAL,
-        NULL,
-        deviceInterfaceList,
-        deviceInterfaceListLength,
-        CM_GET_DEVICE_INTERFACE_LIST_PRESENT
-        ) != CR_SUCCESS)
+    if (PhWindowsVersion >= WINDOWS_10)
     {
-        PhFree(deviceInterfaceList);
-        return FALSE;
+        if (CM_Get_Device_Interface_List(
+            (PGUID)&GUID_COMPUTE_DEVICE_ARRIVAL,
+            NULL,
+            deviceInterfaceList,
+            deviceInterfaceListLength,
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT
+            ) != CR_SUCCESS)
+        {
+            PhFree(deviceInterfaceList);
+            return FALSE;
+        }
+    }
+    else
+    {
+        if (CM_Get_Device_Interface_List(
+            (PGUID)&GUID_DISPLAY_DEVICE_ARRIVAL,
+            NULL,
+            deviceInterfaceList,
+            deviceInterfaceListLength,
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT
+            ) != CR_SUCCESS)
+        {
+            PhFree(deviceInterfaceList);
+            return FALSE;
+        }
     }
 
     deviceAdapterList = PhCreateList(10);
@@ -721,6 +754,49 @@ BOOLEAN EtpInitializeD3DStatistics(
 
     for (ULONG i = 0; i < deviceAdapterList->Count; i++)
     {
+        DEVPROPTYPE devicePropertyType;
+        DEVINST deviceInstanceHandle;
+        ULONG devicePropertyLength;
+        WCHAR deviceInstanceId[MAX_DEVICE_ID_LEN];
+        GUID deviceClass;
+
+        devicePropertyLength = MAX_DEVICE_ID_LEN;
+
+        if (CM_Get_Device_Interface_Property(
+            PhGetString(deviceAdapterList->Items[i]),
+            &DEVPKEY_Device_InstanceId,
+            &devicePropertyType,
+            (PBYTE)deviceInstanceId,
+            &devicePropertyLength,
+            0
+            ) != CR_SUCCESS)
+        {
+            continue;
+        }
+
+        if (CM_Locate_DevNode(&deviceInstanceHandle, deviceInstanceId, CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS)
+            continue;
+
+        devicePropertyLength = sizeof(GUID);
+
+        if (CM_Get_DevNode_Property(
+            deviceInstanceHandle,
+            &DEVPKEY_Device_ClassGuid,
+            &devicePropertyType,
+            (PBYTE)&deviceClass,
+            &devicePropertyLength,
+            0
+            ) != CR_SUCCESS)
+        {
+            continue;
+        }
+
+        if (IsEqualGUID(&deviceClass, &GUID_DEVCLASS_COMPUTEACCELERATOR))
+        {
+            // TODO(jxy-s) break out the NPUs into their own tracking
+            continue;
+        }
+
         memset(&openAdapterFromDeviceName, 0, sizeof(D3DKMT_OPENADAPTERFROMDEVICENAME));
         openAdapterFromDeviceName.pDeviceName = PhGetString(deviceAdapterList->Items[i]);
 
