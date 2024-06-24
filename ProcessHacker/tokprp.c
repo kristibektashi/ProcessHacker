@@ -24,6 +24,8 @@
 #include <secedit.h>
 #include <emenu.h>
 #include <cpysave.h>
+#include <lsasup.h>
+#include <uxtheme.h>
 
 typedef struct _ATTRIBUTE_NODE
 {
@@ -138,7 +140,7 @@ VOID PhShowTokenProperties(
 
     pages[0] = PhCreateTokenPage(OpenObject, Context, NULL);
 
-    PropertySheet(&propSheetHeader);
+    PhModalPropertySheet(&propSheetHeader);
 }
 
 HPROPSHEETPAGE PhCreateTokenPage(
@@ -207,7 +209,7 @@ PPH_STRING PhGetGroupAttributesString(
         if (Attributes & SE_GROUP_INTEGRITY_ENABLED)
             return PhCreateString(L"Integrity");
         else
-            return PhCreateString(L"Integrity (Disabled)");
+            return PhCreateString(L"Integrity (disabled)");
     }
 
     if (Attributes & SE_GROUP_LOGON_ID)
@@ -219,14 +221,14 @@ PPH_STRING PhGetGroupAttributesString(
     else if (Attributes & SE_GROUP_RESOURCE)
         baseString = L"Resource";
     else if (Attributes & SE_GROUP_USE_FOR_DENY_ONLY)
-        baseString = L"Use for Deny Only";
+        baseString = L"Use for deny only";
     else
         baseString = NULL;
 
     if (!baseString)
     {
         if (Attributes & SE_GROUP_ENABLED_BY_DEFAULT)
-            return PhCreateString(L"Default Enabled");
+            return PhCreateString(L"Default enabled");
         else if (Attributes & SE_GROUP_ENABLED)
             return PhReferenceEmptyString();
         else
@@ -234,11 +236,11 @@ PPH_STRING PhGetGroupAttributesString(
     }
 
     if (Attributes & SE_GROUP_ENABLED_BY_DEFAULT)
-        string = PhConcatStrings2(baseString, L" (Default Enabled)");
+        string = PhConcatStrings2(baseString, L" (default enabled)");
     else if (Attributes & SE_GROUP_ENABLED)
         string = PhCreateString(baseString);
     else
-        string = PhConcatStrings2(baseString, L" (Disabled)");
+        string = PhConcatStrings2(baseString, L" (disabled)");
 
     return string;
 }
@@ -496,7 +498,7 @@ INT_PTR CALLBACK PhpTokenPageProc(
                         }
                         else
                         {
-                            SetDlgItemText(hwndDlg, IDC_VIRTUALIZED, L"Not Allowed");
+                            SetDlgItemText(hwndDlg, IDC_VIRTUALIZED, L"Not allowed");
                         }
                     }
                 }
@@ -631,7 +633,7 @@ INT_PTR CALLBACK PhpTokenPageProc(
                             ULONG newAttributes;
 
                             PhLookupPrivilegeName(&privileges[i]->Luid, &privilegeName);
-                            PhAutoDereferenceObject(privilegeName);
+                            PH_AUTO(privilegeName);
 
                             switch (LOWORD(wParam))
                             {
@@ -1017,7 +1019,7 @@ VOID PhpShowTokenAdvancedProperties(
     }
 
     propSheetHeader.nPages = numberOfPages;
-    PropertySheet(&propSheetHeader);
+    PhModalPropertySheet(&propSheetHeader);
 }
 
 static NTSTATUS PhpOpenLinkedToken(
@@ -1059,6 +1061,9 @@ INT_PTR CALLBACK PhpTokenGeneralPageProc(
             WCHAR tokenSourceName[TOKEN_SOURCE_LENGTH + 1] = L"Unknown";
             WCHAR tokenSourceLuid[PH_PTR_STR_LEN_1] = L"Unknown";
 
+            // HACK
+            PhCenterWindow(GetParent(hwndDlg), GetParent(GetParent(hwndDlg)));
+
             if (NT_SUCCESS(tokenPageContext->OpenObject(
                 &tokenHandle,
                 TOKEN_QUERY,
@@ -1074,21 +1079,21 @@ INT_PTR CALLBACK PhpTokenGeneralPageProc(
 
                 if (NT_SUCCESS(PhGetTokenUser(tokenHandle, &tokenUser)))
                 {
-                    tokenUserName = PhAutoDereferenceObject(PhGetSidFullName(tokenUser->User.Sid, TRUE, NULL));
-                    tokenUserSid = PhAutoDereferenceObject(PhSidToStringSid(tokenUser->User.Sid));
+                    tokenUserName = PH_AUTO(PhGetSidFullName(tokenUser->User.Sid, TRUE, NULL));
+                    tokenUserSid = PH_AUTO(PhSidToStringSid(tokenUser->User.Sid));
 
                     PhFree(tokenUser);
                 }
 
                 if (NT_SUCCESS(PhGetTokenOwner(tokenHandle, &tokenOwner)))
                 {
-                    tokenOwnerName = PhAutoDereferenceObject(PhGetSidFullName(tokenOwner->Owner, TRUE, NULL));
+                    tokenOwnerName = PH_AUTO(PhGetSidFullName(tokenOwner->Owner, TRUE, NULL));
                     PhFree(tokenOwner);
                 }
 
                 if (NT_SUCCESS(PhGetTokenPrimaryGroup(tokenHandle, &tokenPrimaryGroup)))
                 {
-                    tokenPrimaryGroupName = PhAutoDereferenceObject(PhGetSidFullName(
+                    tokenPrimaryGroupName = PH_AUTO(PhGetSidFullName(
                         tokenPrimaryGroup->PrimaryGroup, TRUE, NULL));
                     PhFree(tokenPrimaryGroup);
                 }
@@ -1140,7 +1145,7 @@ INT_PTR CALLBACK PhpTokenGeneralPageProc(
                         NULL
                         );
 
-                    PhPrintPointer(tokenSourceLuid, (PVOID)tokenSource.SourceIdentifier.LowPart);
+                    PhPrintPointer(tokenSourceLuid, UlongToPtr(tokenSource.SourceIdentifier.LowPart));
                 }
 
                 NtClose(tokenHandle);
@@ -1187,6 +1192,21 @@ INT_PTR CALLBACK PhpTokenGeneralPageProc(
                     {
                         PhShowStatus(hwndDlg, L"Unable to open the token", status, 0);
                     }
+                }
+                break;
+            }
+        }
+        break;
+    case WM_NOTIFY:
+        {
+            LPNMHDR header = (LPNMHDR)lParam;
+
+            switch (header->code)
+            {
+            case PSN_QUERYINITIALFOCUS:
+                {
+                    SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, (LONG_PTR)GetDlgItem(hwndDlg, IDC_LINKEDTOKEN));
+                    return TRUE;
                 }
                 break;
             }
@@ -1266,8 +1286,8 @@ INT_PTR CALLBACK PhpTokenAdvancedPageProc(
                         tokenImpersonationLevel = L"N/A";
                     }
 
-                    PhPrintPointer(tokenLuid, (PVOID)statistics.TokenId.LowPart);
-                    PhPrintPointer(authenticationLuid, (PVOID)statistics.AuthenticationId.LowPart);
+                    PhPrintPointer(tokenLuid, UlongToPtr(statistics.TokenId.LowPart));
+                    PhPrintPointer(authenticationLuid, UlongToPtr(statistics.AuthenticationId.LowPart));
 
                     // DynamicCharged contains the number of bytes allocated.
                     // DynamicAvailable contains the number of bytes free.
@@ -1376,6 +1396,8 @@ INT_PTR CALLBACK PhpTokenCapabilitiesPageProc(
 
                 NtClose(tokenHandle);
             }
+
+            EnableThemeDialogTexture(hwndDlg, ETDT_ENABLETAB);
         }
         break;
     case WM_DESTROY:
@@ -1522,7 +1544,7 @@ VOID PhpInitializeAttributeTreeContext(
     PhSetControlTheme(TreeNewHandle, L"explorer");
     TreeNew_SetCallback(TreeNewHandle, PhpAttributeTreeNewCallback, Context);
     TreeNew_GetViewParts(TreeNewHandle, &parts);
-    PhAddTreeNewColumn(TreeNewHandle, 0, TRUE, L"Attributes", parts.ClientRect.right - parts.VScrollWidth, PH_ALIGN_LEFT, 0, 0);
+    PhAddTreeNewColumnEx2(TreeNewHandle, 0, TRUE, L"Attributes", parts.ClientRect.right - parts.VScrollWidth, PH_ALIGN_LEFT, 0, 0, TN_COLUMN_FLAG_NODPISCALEONADD);
 }
 
 VOID PhpDeleteAttributeTreeContext(
@@ -1561,7 +1583,7 @@ PWSTR PhGetSecurityAttributeTypeString(
     case TOKEN_SECURITY_ATTRIBUTE_TYPE_BOOLEAN:
         return L"Boolean";
     case TOKEN_SECURITY_ATTRIBUTE_TYPE_OCTET_STRING:
-        return L"Octet String";
+        return L"Octet string";
     default:
         return L"(Unknown)";
     }
@@ -1582,9 +1604,9 @@ PPH_STRING PhGetSecurityAttributeFlagsString(
     if (Flags & TOKEN_SECURITY_ATTRIBUTE_DISABLED)
         PhAppendStringBuilder2(&sb, L"Disabled, ");
     if (Flags & TOKEN_SECURITY_ATTRIBUTE_DISABLED_BY_DEFAULT)
-        PhAppendStringBuilder2(&sb, L"Default Disabled, ");
+        PhAppendStringBuilder2(&sb, L"Default disabled, ");
     if (Flags & TOKEN_SECURITY_ATTRIBUTE_USE_FOR_DENY_ONLY)
-        PhAppendStringBuilder2(&sb, L"Use for Deny Only, ");
+        PhAppendStringBuilder2(&sb, L"Use for deny only, ");
     if (Flags & TOKEN_SECURITY_ATTRIBUTE_VALUE_CASE_SENSITIVE)
         PhAppendStringBuilder2(&sb, L"Case-sensitive, ");
     if (Flags & TOKEN_SECURITY_ATTRIBUTE_NON_INHERITABLE)
@@ -1793,6 +1815,8 @@ INT_PTR CALLBACK PhpTokenClaimsPageProc(
 
             TreeNew_NodesStructured(tnHandle);
             TreeNew_SetRedraw(tnHandle, TRUE);
+
+            EnableThemeDialogTexture(hwndDlg, ETDT_ENABLETAB);
         }
         break;
     case WM_DESTROY:
@@ -1894,6 +1918,8 @@ INT_PTR CALLBACK PhpTokenAttributesPageProc(
 
             TreeNew_NodesStructured(tnHandle);
             TreeNew_SetRedraw(tnHandle, TRUE);
+
+            EnableThemeDialogTexture(hwndDlg, ETDT_ENABLETAB);
         }
         break;
     case WM_DESTROY:

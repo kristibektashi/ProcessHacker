@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|ARM">
       <Configuration>Debug</Configuration>
@@ -30,13 +30,14 @@
     <ProjectGuid>{477D0215-F252-41A1-874B-F27E3EA1ED17}</ProjectGuid>
     <RootNamespace>phlib</RootNamespace>
     <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.10586.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -47,7 +48,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -58,12 +59,12 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -108,8 +109,8 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\phnt\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>DEBUG;_PHLIB_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -138,8 +139,8 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\phnt\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>DEBUG;_PHLIB_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -154,8 +155,8 @@
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <AdditionalIncludeDirectories>include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\phnt\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_PHLIB_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <BufferSecurityCheck>false</BufferSecurityCheck>
@@ -190,8 +191,8 @@
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <AdditionalIncludeDirectories>include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN64;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\phnt\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN64;NDEBUG;_WINDOWS;_PHLIB_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <BufferSecurityCheck>false</BufferSecurityCheck>
@@ -205,10 +206,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="apiimport.c" />
+    <ClCompile Include="avltree.c" />
     <ClCompile Include="basesup.c" />
-    <ClCompile Include="basesupa.c" />
     <ClCompile Include="circbuf.c" />
-    <ClCompile Include="collect.c" />
     <ClCompile Include="colorbox.c" />
     <ClCompile Include="cpysave.c" />
     <ClCompile Include="data.c" />
@@ -226,10 +226,10 @@
     <ClCompile Include="hexedit.c" />
     <ClCompile Include="hndlinfo.c" />
     <ClCompile Include="icotobmp.c" />
-    <ClCompile Include="iosup.c" />
+    <ClCompile Include="filestream.c" />
     <ClCompile Include="kph.c" />
     <ClCompile Include="kphdata.c" />
-    <ClCompile Include="lsa.c" />
+    <ClCompile Include="lsasup.c" />
     <ClCompile Include="mapimg.c" />
     <ClCompile Include="maplib.c" />
     <ClCompile Include="md5.c" />
@@ -240,7 +240,7 @@
     <ClCompile Include="secdata.c" />
     <ClCompile Include="secedit.c" />
     <ClCompile Include="sha.c" />
-    <ClCompile Include="support.c" />
+    <ClCompile Include="util.c" />
     <ClCompile Include="svcsup.c" />
     <ClCompile Include="symprv.c" />
     <ClCompile Include="sync.c" />
@@ -253,16 +253,27 @@
     <ClInclude Include="include\cpysave.h" />
     <ClInclude Include="include\filepool.h" />
     <ClInclude Include="include\filepoolp.h" />
+    <ClInclude Include="include\filestream.h" />
+    <ClInclude Include="include\handle.h" />
+    <ClInclude Include="include\hndlinfo.h" />
     <ClInclude Include="include\kphapi.h" />
-    <ClInclude Include="include\ntpfapi.h" />
-    <ClInclude Include="include\ntzwapi.h" />
+    <ClInclude Include="include\kphuserp.h" />
+    <ClInclude Include="include\lsasup.h" />
+    <ClInclude Include="include\mapimg.h" />
+    <ClInclude Include="include\phbasesup.h" />
+    <ClInclude Include="include\phconfig.h" />
+    <ClInclude Include="include\phdata.h" />
     <ClInclude Include="include\phintrnl.h" />
-    <ClInclude Include="include\phnatinl.h" />
+    <ClInclude Include="include\phnative.h" />
+    <ClInclude Include="include\phnativeinl.h" />
     <ClInclude Include="include\circbuf.h" />
     <ClInclude Include="include\circbuf_h.h" />
     <ClInclude Include="circbuf_i.h" />
     <ClInclude Include="include\colorbox.h" />
+    <ClInclude Include="include\phutil.h" />
+    <ClInclude Include="include\provider.h" />
     <ClInclude Include="include\secedit.h" />
+    <ClInclude Include="include\svcsup.h" />
     <ClInclude Include="include\symprvp.h" />
     <ClInclude Include="include\treenew.h" />
     <ClInclude Include="include\treenewp.h" />
@@ -277,52 +288,24 @@
     <ClInclude Include="include\handlep.h" />
     <ClInclude Include="include\hexedit.h" />
     <ClInclude Include="include\hexeditp.h" />
-    <ClInclude Include="include\iosupp.h" />
+    <ClInclude Include="include\filestreamp.h" />
     <ClInclude Include="include\kphuser.h" />
-    <ClInclude Include="include\md5.h" />
-    <ClInclude Include="include\ntbasic.h" />
-    <ClInclude Include="include\ntcm.h" />
-    <ClInclude Include="include\ntdbg.h" />
-    <ClInclude Include="include\ntexapi.h" />
-    <ClInclude Include="include\ntgdi.h" />
-    <ClInclude Include="include\ntioapi.h" />
-    <ClInclude Include="include\ntkeapi.h" />
-    <ClInclude Include="include\ntldr.h" />
-    <ClInclude Include="include\ntlpcapi.h" />
-    <ClInclude Include="include\ntlsa.h" />
-    <ClInclude Include="include\ntmisc.h" />
-    <ClInclude Include="include\ntmmapi.h" />
-    <ClInclude Include="include\ntnls.h" />
-    <ClInclude Include="include\ntobapi.h" />
-    <ClInclude Include="include\ntpebteb.h" />
-    <ClInclude Include="include\ntpnpapi.h" />
-    <ClInclude Include="include\ntpoapi.h" />
-    <ClInclude Include="include\ntpsapi.h" />
-    <ClInclude Include="include\ntregapi.h" />
-    <ClInclude Include="include\ntrtl.h" />
-    <ClInclude Include="include\ntsam.h" />
-    <ClInclude Include="include\ntseapi.h" />
-    <ClInclude Include="include\nttmapi.h" />
-    <ClInclude Include="include\nttp.h" />
-    <ClInclude Include="include\ntwin.h" />
-    <ClInclude Include="include\ntwow64.h" />
-    <ClInclude Include="include\ntxcapi.h" />
+    <ClInclude Include="md5.h" />
     <ClInclude Include="include\ph.h" />
     <ClInclude Include="include\phbase.h" />
-    <ClInclude Include="include\phgui.h" />
+    <ClInclude Include="include\guisup.h" />
     <ClInclude Include="include\phnet.h" />
-    <ClInclude Include="include\phnt.h" />
     <ClInclude Include="include\phsup.h" />
     <ClInclude Include="include\queuedlock.h" />
     <ClInclude Include="include\ref.h" />
     <ClInclude Include="include\refp.h" />
-    <ClInclude Include="include\winmisc.h" />
     <ClInclude Include="include\seceditp.h" />
-    <ClInclude Include="include\sha.h" />
+    <ClInclude Include="sha.h" />
     <ClInclude Include="include\symprv.h" />
     <ClInclude Include="include\templ.h" />
     <ClInclude Include="include\verifyp.h" />
-    <ClInclude Include="include\winsta.h" />
+    <ClInclude Include="include\workqueue.h" />
+    <ClInclude Include="include\workqueuep.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

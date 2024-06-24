@@ -2,7 +2,7 @@
  * Process Hacker -
  *   about dialog
  *
- * Copyright (C) 2010-2013 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -22,6 +22,13 @@
 
 #include <phapp.h>
 #include <phappres.h>
+#include <procprv.h>
+#include <srvprv.h>
+#include <netprv.h>
+#include <modprv.h>
+#include <thrdprv.h>
+#include <hndlprv.h>
+#include <memprv.h>
 #include <symprv.h>
 
 static INT_PTR CALLBACK PhpAboutDlgProc(
@@ -39,7 +46,7 @@ static INT_PTR CALLBACK PhpAboutDlgProc(
 
 #if (PHAPP_VERSION_REVISION != 0)
             appName = PhFormatString(
-                L"Process Hacker %u.%u (r%u)",
+                L"Process Hacker %u.%u.%u",
                 PHAPP_VERSION_MAJOR,
                 PHAPP_VERSION_MINOR,
                 PHAPP_VERSION_REVISION
@@ -68,6 +75,7 @@ static INT_PTR CALLBACK PhpAboutDlgProc(
                 L"    MD5 code by Jouni Malinen\n"
                 L"    SHA1 code by Filip Navara, based on code by Steve Reid\n"
                 L"    <a href=\"http://www.famfamfam.com/lab/icons/silk\">Silk icons</a>\n"
+                L"    <a href=\"http://www.fatcow.com/free-icons\">Farm-fresh web icons</a>\n"
                 );
         }
         break;
@@ -81,10 +89,7 @@ static INT_PTR CALLBACK PhpAboutDlgProc(
                 break;
             case IDC_DIAGNOSTICS:
                 {
-                    PPH_STRING diagnosticsString = PhGetDiagnosticsString();
-
-                    PhShowInformationDialog(hwndDlg, diagnosticsString->Buffer);
-                    PhDereferenceObject(diagnosticsString);
+                    PhShowInformationDialog(hwndDlg, PH_AUTO_T(PH_STRING, PhGetDiagnosticsString())->Buffer, 0);
                 }
                 break;
             }

@@ -1,20 +1,22 @@
 #ifndef _PH_FILEPOOL_H
 #define _PH_FILEPOOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // On-disk structures
 
-// Each file has at least one segment.
-// Each segment has a number of blocks, which are allocated
-// from a bitmap. The segment header is always in the first block
-// of each segment, except for the first segment. In the first segment,
-// the file header is in the first few blocks, followed by the segment header.
+// Each file has at least one segment. Each segment has a number of blocks, which are allocated from
+// a bitmap. The segment header is always in the first block of each segment, except for the first
+// segment. In the first segment, the file header is in the first few blocks, followed by the
+// segment header.
 //
-// The segments are placed in a particular free list depending on how many
-// blocks they have free; this allows allocators to simply skip the segments
-// which don't have enough segments free, and allocate new segments if necessary.
-// The free list does not however guarantee that a particular segment has
-// a particular number of contiguous blocks free; low performance can still
-// occur when there is fragmentation.
+// The segments are placed in a particular free list depending on how many blocks they have free;
+// this allows allocators to simply skip the segments which don't have enough segments free, and
+// allocate new segments if necessary. The free list does not however guarantee that a particular
+// segment has a particular number of contiguous blocks free; low performance can still occur when
+// there is fragmentation.
 
 /** The number of 32-bit integers used for each allocation bitmap. */
 #define PH_FP_BITMAP_SIZE 64
@@ -66,8 +68,10 @@ typedef struct _PH_FILE_POOL_PARAMETERS
 {
     // File options
 
-    /** The base-2 logarithm of the size of each segment. This value
-     * must be between 16 and 28, inclusive. */
+    /**
+     * The base-2 logarithm of the size of each segment. This value must be between 16 and 28,
+     * inclusive.
+     */
     ULONG SegmentShift;
 
     // Runtime options
@@ -101,6 +105,7 @@ typedef struct _PH_FILE_POOL
     ULONG SegmentHeaderBlockSpan; // The number of blocks needed to store a segment header
 } PH_FILE_POOL, *PPH_FILE_POOL;
 
+PHLIBAPI
 NTSTATUS PhCreateFilePool(
     _Out_ PPH_FILE_POOL *Pool,
     _In_ HANDLE FileHandle,
@@ -108,6 +113,7 @@ NTSTATUS PhCreateFilePool(
     _In_opt_ PPH_FILE_POOL_PARAMETERS Parameters
     );
 
+PHLIBAPI
 NTSTATUS PhCreateFilePool2(
     _Out_ PPH_FILE_POOL *Pool,
     _In_ PWSTR FileName,
@@ -117,59 +123,74 @@ NTSTATUS PhCreateFilePool2(
     _In_opt_ PPH_FILE_POOL_PARAMETERS Parameters
     );
 
+PHLIBAPI
 VOID PhDestroyFilePool(
     _In_ _Post_invalid_ PPH_FILE_POOL Pool
     );
 
+PHLIBAPI
 PVOID PhAllocateFilePool(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ ULONG Size,
     _Out_opt_ PULONG Rva
     );
 
+PHLIBAPI
 VOID PhFreeFilePool(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ PVOID Block
     );
 
+PHLIBAPI
 BOOLEAN PhFreeFilePoolByRva(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ ULONG Rva
     );
 
+PHLIBAPI
 VOID PhReferenceFilePool(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ PVOID Address
     );
 
+PHLIBAPI
 VOID PhDereferenceFilePool(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ PVOID Address
     );
 
+PHLIBAPI
 PVOID PhReferenceFilePoolByRva(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ ULONG Rva
     );
 
+PHLIBAPI
 BOOLEAN PhDereferenceFilePoolByRva(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ ULONG Rva
     );
 
+PHLIBAPI
 ULONG PhEncodeRvaFilePool(
     _In_ PPH_FILE_POOL Pool,
     _In_ PVOID Address
     );
 
+PHLIBAPI
 VOID PhGetUserContextFilePool(
     _In_ PPH_FILE_POOL Pool,
     _Out_ PULONGLONG Context
     );
 
+PHLIBAPI
 VOID PhSetUserContextFilePool(
     _Inout_ PPH_FILE_POOL Pool,
     _In_ PULONGLONG Context
     );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

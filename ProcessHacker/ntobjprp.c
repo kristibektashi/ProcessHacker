@@ -21,6 +21,8 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
+#include <hndlinfo.h>
 
 typedef struct _COMMON_PAGE_CONTEXT
 {
@@ -500,10 +502,10 @@ static VOID PhpRefreshSectionPageInfo(
     {
         PPH_STRING newFileName;
 
-        PhAutoDereferenceObject(fileName);
+        PH_AUTO(fileName);
 
         if (newFileName = PhResolveDevicePrefix(fileName))
-            fileName = PhAutoDereferenceObject(newFileName);
+            fileName = PH_AUTO(newFileName);
     }
 
     SetDlgItemText(hwndDlg, IDC_TYPE, sectionType);

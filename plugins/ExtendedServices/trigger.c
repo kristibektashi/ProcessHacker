@@ -20,10 +20,7 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phdk.h>
-#include <windowsx.h>
 #include "extsrv.h"
-#include "resource.h"
 
 typedef struct _ES_TRIGGER_DATA
 {
@@ -765,7 +762,7 @@ BOOLEAN EsSaveServiceTriggerInfo(
     // pTriggers needs to be NULL when there are no triggers.
     if (Context->InfoList->Count != 0)
     {
-        triggerInfo.pTriggers = PhAutoDereferenceObject(PhCreateAlloc(Context->InfoList->Count * sizeof(SERVICE_TRIGGER)));
+        triggerInfo.pTriggers = PH_AUTO(PhCreateAlloc(Context->InfoList->Count * sizeof(SERVICE_TRIGGER)));
         memset(triggerInfo.pTriggers, 0, Context->InfoList->Count * sizeof(SERVICE_TRIGGER));
 
         for (i = 0; i < Context->InfoList->Count; i++)
@@ -780,7 +777,7 @@ BOOLEAN EsSaveServiceTriggerInfo(
             if (info->DataList && info->DataList->Count != 0)
             {
                 trigger->cDataItems = info->DataList->Count;
-                trigger->pDataItems = PhAutoDereferenceObject(PhCreateAlloc(info->DataList->Count * sizeof(SERVICE_TRIGGER_SPECIFIC_DATA_ITEM)));
+                trigger->pDataItems = PH_AUTO(PhCreateAlloc(info->DataList->Count * sizeof(SERVICE_TRIGGER_SPECIFIC_DATA_ITEM)));
 
                 for (j = 0; j < info->DataList->Count; j++)
                 {
@@ -829,7 +826,7 @@ BOOLEAN EsSaveServiceTriggerInfo(
         result = FALSE;
         *Win32Result = GetLastError();
 
-        if (*Win32Result == ERROR_ACCESS_DENIED && !PhElevated)
+        if (*Win32Result == ERROR_ACCESS_DENIED && !PhGetOwnTokenAttributes().Elevated)
         {
             // Elevate using phsvc.
             if (PhUiConnectToPhSvc(Context->WindowHandle, FALSE))
@@ -1010,7 +1007,7 @@ VOID EsHandleEventServiceTrigger(
     }
 }
 
-static ULONG EspTriggerTypeStringToInteger(
+ULONG EspTriggerTypeStringToInteger(
     _In_ PWSTR String
     )
 {
@@ -1036,7 +1033,7 @@ static int __cdecl EtwPublisherByNameCompareFunction(
     return PhCompareString(entry1->PublisherName, entry2->PublisherName, TRUE);
 }
 
-static VOID EspFixServiceTriggerControls(
+VOID EspFixServiceTriggerControls(
     _In_ HWND hwndDlg,
     _In_ PES_TRIGGER_CONTEXT Context
     )
@@ -1669,7 +1666,7 @@ DoNotClose:
     return FALSE;
 }
 
-static INT_PTR CALLBACK ValueDlgProc(
+INT_PTR CALLBACK ValueDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -1699,7 +1696,7 @@ static INT_PTR CALLBACK ValueDlgProc(
     case WM_INITDIALOG:
         {
             SetDlgItemText(hwndDlg, IDC_VALUES, context->EditingValue->Buffer);
-            SetFocus(GetDlgItem(hwndDlg, IDC_VALUES));
+            SendMessage(hwndDlg, WM_NEXTDLGCTL, (WPARAM)GetDlgItem(hwndDlg, IDC_VALUES), TRUE);
             Edit_SetSel(GetDlgItem(hwndDlg, IDC_VALUES), 0, -1);
         }
         break;

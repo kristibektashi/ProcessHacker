@@ -20,10 +20,7 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phdk.h>
-#include <windowsx.h>
 #include "extsrv.h"
-#include "resource.h"
 
 typedef struct _SERVICE_RECOVERY_CONTEXT
 {
@@ -37,8 +34,6 @@ typedef struct _SERVICE_RECOVERY_CONTEXT
     BOOLEAN Ready;
     BOOLEAN Dirty;
 } SERVICE_RECOVERY_CONTEXT, *PSERVICE_RECOVERY_CONTEXT;
-
-#define SIP(String, Integer) { (String), (PVOID)(Integer) }
 
 static PH_KEY_VALUE_PAIR ServiceActionPairs[] =
 {
@@ -91,25 +86,21 @@ PWSTR EspServiceActionToString(
         return NULL;
 }
 
-static SC_ACTION_TYPE ComboBoxToServiceAction(
+SC_ACTION_TYPE ComboBoxToServiceAction(
     _In_ HWND ComboBoxHandle
     )
 {
-    SC_ACTION_TYPE actionType;
     PPH_STRING string;
 
-    string = PhGetComboBoxString(ComboBoxHandle, ComboBox_GetCurSel(ComboBoxHandle));
+    string = PH_AUTO(PhGetComboBoxString(ComboBoxHandle, ComboBox_GetCurSel(ComboBoxHandle)));
 
     if (!string)
         return SC_ACTION_NONE;
 
-    actionType = EspStringToServiceAction(string->Buffer);
-    PhDereferenceObject(string);
-
-    return actionType;
+    return EspStringToServiceAction(string->Buffer);
 }
 
-static VOID ServiceActionToComboBox(
+VOID ServiceActionToComboBox(
     _In_ HWND ComboBoxHandle,
     _In_ SC_ACTION_TYPE ActionType
     )
@@ -122,7 +113,7 @@ static VOID ServiceActionToComboBox(
         PhSelectComboBoxString(ComboBoxHandle, (PWSTR)ServiceActionPairs[0].Key, FALSE);
 }
 
-static VOID EspFixControls(
+VOID EspFixControls(
     _In_ HWND hwndDlg,
     _In_ PSERVICE_RECOVERY_CONTEXT Context
     )
@@ -258,7 +249,7 @@ NTSTATUS EspLoadRecoveryInfo(
     if (failureActions->lpRebootMsg && failureActions->lpRebootMsg[0] != 0)
         PhMoveReference(&Context->RebootMessage, PhCreateString(failureActions->lpRebootMsg));
     else
-        PhMoveReference(&Context->RebootMessage, NULL);
+        PhClearReference(&Context->RebootMessage);
 
     // Run program
 
@@ -336,7 +327,7 @@ INT_PTR CALLBACK EspServiceRecoveryDlgProc(
                 }
 
                 PhShowWarning(hwndDlg, L"Unable to query service recovery information: %s",
-                    ((PPH_STRING)PhAutoDereferenceObject(PhGetNtMessage(status)))->Buffer);
+                    ((PPH_STRING)PH_AUTO(PhGetNtMessage(status)))->Buffer);
             }
 
             EspFixControls(hwndDlg, context);
@@ -346,7 +337,7 @@ INT_PTR CALLBACK EspServiceRecoveryDlgProc(
         break;
     case WM_DESTROY:
         {
-            PhMoveReference(&context->RebootMessage, NULL);
+            PhClearReference(&context->RebootMessage);
             PhFree(context);
         }
         break;
@@ -393,9 +384,8 @@ INT_PTR CALLBACK EspServiceRecoveryDlgProc(
 
                     if (PhShowFileDialog(hwndDlg, fileDialog))
                     {
-                        fileName = PhGetFileDialogFileName(fileDialog);
+                        fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
                         SetDlgItemText(hwndDlg, IDC_RUNPROGRAM, fileName->Buffer);
-                        PhDereferenceObject(fileName);
                     }
 
                     PhFreeFileDialog(fileDialog);
@@ -519,7 +509,7 @@ INT_PTR CALLBACK EspServiceRecoveryDlgProc(
                     }
                     else
                     {
-                        if (GetLastError() == ERROR_ACCESS_DENIED && !PhElevated)
+                        if (GetLastError() == ERROR_ACCESS_DENIED && !PhGetOwnTokenAttributes().Elevated)
                         {
                             // Elevate using phsvc.
                             if (PhUiConnectToPhSvc(hwndDlg, FALSE))
@@ -571,7 +561,7 @@ ErrorCase:
                         hwndDlg,
                         MB_ICONERROR | MB_RETRYCANCEL,
                         L"Unable to change service recovery information: %s",
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetWin32Message(GetLastError())))->Buffer
+                        ((PPH_STRING)PH_AUTO(PhGetWin32Message(GetLastError())))->Buffer
                         ) == IDRETRY)
                     {
                         SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_INVALID);
@@ -596,7 +586,7 @@ INT_PTR CALLBACK EspServiceRecovery2DlgProc(
     return FALSE;
 }
 
-static INT_PTR CALLBACK RestartComputerDlgProc(
+INT_PTR CALLBACK RestartComputerDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -625,11 +615,13 @@ static INT_PTR CALLBACK RestartComputerDlgProc(
     {
     case WM_INITDIALOG:
         {
+            PhCenterWindow(hwndDlg, GetParent(hwndDlg));
+
             SetDlgItemInt(hwndDlg, IDC_RESTARTCOMPAFTER, context->RebootAfter / (1000 * 60), FALSE); // ms to min
             Button_SetCheck(GetDlgItem(hwndDlg, IDC_ENABLERESTARTMESSAGE), context->RebootMessage ? BST_CHECKED : BST_UNCHECKED);
             SetDlgItemText(hwndDlg, IDC_RESTARTMESSAGE, PhGetString(context->RebootMessage));
 
-            SetFocus(GetDlgItem(hwndDlg, IDC_RESTARTCOMPAFTER));
+            SendMessage(hwndDlg, WM_NEXTDLGCTL, (WPARAM)GetDlgItem(hwndDlg, IDC_RESTARTCOMPAFTER), TRUE);
             Edit_SetSel(GetDlgItem(hwndDlg, IDC_RESTARTCOMPAFTER), 0, -1);
         }
         break;
@@ -647,7 +639,7 @@ static INT_PTR CALLBACK RestartComputerDlgProc(
                     if (Button_GetCheck(GetDlgItem(hwndDlg, IDC_ENABLERESTARTMESSAGE)) == BST_CHECKED)
                         PhMoveReference(&context->RebootMessage, PhGetWindowText(GetDlgItem(hwndDlg, IDC_RESTARTMESSAGE)));
                     else
-                        PhMoveReference(&context->RebootMessage, NULL);
+                        PhClearReference(&context->RebootMessage);
 
                     context->Dirty = TRUE;
 
@@ -681,7 +673,7 @@ static INT_PTR CALLBACK RestartComputerDlgProc(
 
                     // This message is exactly the same as the one in the Services console,
                     // except the double spaces are replaced by single spaces.
-                    message = PhFormatString(
+                    message = PhaFormatString(
                         L"Your computer is connected to the computer named %s. "
                         L"The %s service on %s has ended unexpectedly. "
                         L"%s will restart automatically, and then you can reestablish the connection.",
@@ -691,7 +683,6 @@ static INT_PTR CALLBACK RestartComputerDlgProc(
                         computerName
                         );
                     SetDlgItemText(hwndDlg, IDC_RESTARTMESSAGE, message->Buffer);
-                    PhDereferenceObject(message);
 
                     if (allocated)
                         PhFree(computerName);

@@ -22,6 +22,8 @@
 
 #include <phapp.h>
 #include <kphuser.h>
+#include <hndlprv.h>
+#include <hndlinfo.h>
 #include <secedit.h>
 #include <phplug.h>
 
@@ -55,31 +57,15 @@ static NTSTATUS PhpDuplicateHandleFromProcess(
         )))
         return status;
 
-    if (KphIsConnected() && PhEqualString2(context->HandleItem->TypeName, L"File", TRUE))
-    {
-        status = PhCallKphDuplicateObjectWithTimeout(
-            processHandle,
-            context->HandleItem->Handle,
-            NtCurrentProcess(),
-            Handle,
-            DesiredAccess,
-            0,
-            0
-            );
-    }
-    else
-    {
-        status = PhDuplicateObject(
-            processHandle,
-            context->HandleItem->Handle,
-            NtCurrentProcess(),
-            Handle,
-            DesiredAccess,
-            0,
-            0
-            );
-    }
-
+    status = NtDuplicateObject(
+        processHandle,
+        context->HandleItem->Handle,
+        NtCurrentProcess(),
+        Handle,
+        DesiredAccess,
+        0,
+        0
+        );
     NtClose(processHandle);
 
     return status;
@@ -220,7 +206,7 @@ VOID PhShowHandleProperties(
         propSheetHeader.nPages = objectProperties.NumberOfPages;
     }
 
-    PropertySheet(&propSheetHeader);
+    PhModalPropertySheet(&propSheetHeader);
 }
 
 INT_PTR CALLBACK PhpHandleGeneralDlgProc(
@@ -257,28 +243,25 @@ INT_PTR CALLBACK PhpHandleGeneralDlgProc(
                 PPH_STRING accessString;
                 PPH_STRING grantedAccessString;
 
-                accessString = PhGetAccessString(
+                accessString = PH_AUTO(PhGetAccessString(
                     context->HandleItem->GrantedAccess,
                     accessEntries,
                     numberOfAccessEntries
-                    );
+                    ));
 
                 if (accessString->Length != 0)
                 {
-                    grantedAccessString = PhFormatString(
+                    grantedAccessString = PhaFormatString(
                         L"%s (%s)",
                         context->HandleItem->GrantedAccessString,
                         accessString->Buffer
                         );
                     SetDlgItemText(hwndDlg, IDC_GRANTED_ACCESS, grantedAccessString->Buffer);
-                    PhDereferenceObject(grantedAccessString);
                 }
                 else
                 {
                     SetDlgItemText(hwndDlg, IDC_GRANTED_ACCESS, context->HandleItem->GrantedAccessString);
                 }
-
-                PhDereferenceObject(accessString);
 
                 PhFree(accessEntries);
             }

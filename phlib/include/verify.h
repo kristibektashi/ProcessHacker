@@ -4,6 +4,10 @@
 #include <wintrust.h>
 #include <softpub.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define PH_VERIFY_DEFAULT_SIZE_LIMIT (32 * 1024 * 1024)
 
 typedef enum _VERIFY_RESULT
@@ -34,25 +38,40 @@ typedef struct _PH_VERIFY_FILE_INFO
 } PH_VERIFY_FILE_INFO, *PPH_VERIFY_FILE_INFO;
 
 PHLIBAPI
-VERIFY_RESULT PhVerifyFile(
+VERIFY_RESULT
+NTAPI
+PhVerifyFile(
     _In_ PWSTR FileName,
     _Out_opt_ PPH_STRING *SignerName
     );
 
-NTSTATUS PhVerifyFileEx(
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhVerifyFileEx(
     _In_ PPH_VERIFY_FILE_INFO Information,
     _Out_ VERIFY_RESULT *VerifyResult,
     _Out_opt_ PCERT_CONTEXT **Signatures,
     _Out_opt_ PULONG NumberOfSignatures
     );
 
-VOID PhFreeVerifySignatures(
+PHLIBAPI
+VOID
+NTAPI
+PhFreeVerifySignatures(
     _In_ PCERT_CONTEXT *Signatures,
     _In_ ULONG NumberOfSignatures
     );
 
-PPH_STRING PhGetSignerNameFromCertificate(
+PHLIBAPI
+PPH_STRING
+NTAPI
+PhGetSignerNameFromCertificate(
     _In_ PCERT_CONTEXT Certificate
     );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

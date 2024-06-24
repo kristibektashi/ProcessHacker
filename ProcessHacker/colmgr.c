@@ -2,7 +2,7 @@
  * Process Hacker -
  *   tree new column manager
  *
- * Copyright (C) 2011 wj32
+ * Copyright (C) 2011-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -312,11 +312,13 @@ BOOLEAN PhCmLoadSettingsEx(
     )
 {
     BOOLEAN result = FALSE;
+    PH_STRINGREF scalePart;
     PH_STRINGREF columnPart;
     PH_STRINGREF remainingColumnPart;
     PH_STRINGREF valuePart;
     PH_STRINGREF subPart;
     ULONG64 integer;
+    ULONG scale;
     ULONG total;
     BOOLEAN hasFixedColumn;
     ULONG count;
@@ -332,6 +334,21 @@ BOOLEAN PhCmLoadSettingsEx(
         columnHashtable = PhCreateSimpleHashtable(20);
 
         remainingColumnPart = *Settings;
+
+        if (remainingColumnPart.Length != 0 && remainingColumnPart.Buffer[0] == '@')
+        {
+            PhSkipStringRef(&remainingColumnPart, sizeof(WCHAR));
+            PhSplitStringRefAtChar(&remainingColumnPart, '|', &scalePart, &remainingColumnPart);
+
+            if (scalePart.Length == 0 || !PhStringToInteger64(&scalePart, 10, &integer))
+                goto CleanupExit;
+
+            scale = (ULONG)integer;
+        }
+        else
+        {
+            scale = PhGlobalDpi;
+        }
 
         while (remainingColumnPart.Length != 0)
         {
@@ -405,11 +422,14 @@ BOOLEAN PhCmLoadSettingsEx(
 
                 width = (ULONG)integer;
 
+                if (scale != PhGlobalDpi && scale != 0)
+                    width = PhMultiplyDivide(width, PhGlobalDpi, scale);
+
                 column = PhAllocate(sizeof(PH_TREENEW_COLUMN));
                 column->Id = id;
                 column->DisplayIndex = displayIndex;
                 column->Width = width;
-                PhAddItemSimpleHashtable(columnHashtable, (PVOID)column->Id, column);
+                PhAddItemSimpleHashtable(columnHashtable, UlongToPtr(column->Id), column);
             }
         }
 
@@ -431,7 +451,7 @@ BOOLEAN PhCmLoadSettingsEx(
 
             if (TreeNew_GetColumn(TreeNewHandle, i, &setColumn))
             {
-                columnPtr = (PPH_TREENEW_COLUMN *)PhFindItemSimpleHashtable(columnHashtable, (PVOID)i);
+                columnPtr = (PPH_TREENEW_COLUMN *)PhFindItemSimpleHashtable(columnHashtable, UlongToPtr(i));
 
                 if (!(Flags & PH_CM_COLUMN_WIDTHS_ONLY))
                 {
@@ -573,6 +593,8 @@ PPH_STRING PhCmSaveSettingsEx(
         increment = 0;
 
     PhInitializeStringBuilder(&stringBuilder, 100);
+
+    PhAppendFormatStringBuilder(&stringBuilder, L"@%u|", PhGlobalDpi);
 
     while (count < total)
     {

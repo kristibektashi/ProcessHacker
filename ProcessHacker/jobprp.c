@@ -21,6 +21,8 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
+#include <hndlinfo.h>
 #include <secedit.h>
 #include <settings.h>
 
@@ -78,7 +80,7 @@ VOID PhShowJobProperties(
 
     pages[0] = PhCreateJobPage(OpenObject, Context, NULL);
 
-    PropertySheet(&propSheetHeader);
+    PhModalPropertySheet(&propSheetHeader);
 }
 
 HPROPSHEETPAGE PhCreateJobPage(
@@ -179,7 +181,7 @@ static VOID PhpAddJobProcesses(
         for (i = 0; i < processIdList->NumberOfProcessIdsInList; i++)
         {
             clientId.UniqueProcess = (HANDLE)processIdList->ProcessIdList[i];
-            name = PhAutoDereferenceObject(PhGetClientIdName(&clientId));
+            name = PH_AUTO(PhGetClientIdName(&clientId));
 
             PhAddListViewItem(processesLv, MAXINT, PhGetString(name), NULL);
         }
@@ -251,7 +253,7 @@ INT_PTR CALLBACK PhpJobPageProc(
                     NULL,
                     &jobObjectName
                     );
-                PhAutoDereferenceObject(jobObjectName);
+                PH_AUTO(jobObjectName);
 
                 if (jobObjectName && jobObjectName->Length == 0)
                     jobObjectName = NULL;
@@ -271,7 +273,7 @@ INT_PTR CALLBACK PhpJobPageProc(
                     {
                         WCHAR value[PH_INT32_STR_LEN_1];
                         PhPrintUInt32(value, extendedLimits.BasicLimitInformation.ActiveProcessLimit);
-                        PhpAddLimit(limitsLv, L"Active Processes", value);
+                        PhpAddLimit(limitsLv, L"Active processes", value);
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_AFFINITY)
@@ -288,14 +290,13 @@ INT_PTR CALLBACK PhpJobPageProc(
 
                     if (flags & JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION)
                     {
-                        PhpAddLimit(limitsLv, L"Die on Unhandled Exception", L"Enabled");
+                        PhpAddLimit(limitsLv, L"Die on unhandled exception", L"Enabled");
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_JOB_MEMORY)
                     {
-                        PPH_STRING value = PhFormatSize(extendedLimits.JobMemoryLimit, -1);
-                        PhpAddLimit(limitsLv, L"Job Memory", value->Buffer);
-                        PhDereferenceObject(value);
+                        PPH_STRING value = PhaFormatSize(extendedLimits.JobMemoryLimit, -1);
+                        PhpAddLimit(limitsLv, L"Job memory", value->Buffer);
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_JOB_TIME)
@@ -303,25 +304,24 @@ INT_PTR CALLBACK PhpJobPageProc(
                         WCHAR value[PH_TIMESPAN_STR_LEN_1];
                         PhPrintTimeSpan(value, extendedLimits.BasicLimitInformation.PerJobUserTimeLimit.QuadPart,
                             PH_TIMESPAN_DHMS);
-                        PhpAddLimit(limitsLv, L"Job Time", value);
+                        PhpAddLimit(limitsLv, L"Job time", value);
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
                     {
-                        PhpAddLimit(limitsLv, L"Kill on Job Close", L"Enabled");
+                        PhpAddLimit(limitsLv, L"Kill on job close", L"Enabled");
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_PRIORITY_CLASS)
                     {
-                        PhpAddLimit(limitsLv, L"Priority Class",
+                        PhpAddLimit(limitsLv, L"Priority class",
                             PhGetProcessPriorityClassString(extendedLimits.BasicLimitInformation.PriorityClass));
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_PROCESS_MEMORY)
                     {
-                        PPH_STRING value = PhFormatSize(extendedLimits.ProcessMemoryLimit, -1);
-                        PhpAddLimit(limitsLv, L"Process Memory", value->Buffer);
-                        PhDereferenceObject(value);
+                        PPH_STRING value = PhaFormatSize(extendedLimits.ProcessMemoryLimit, -1);
+                        PhpAddLimit(limitsLv, L"Process memory", value->Buffer);
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_PROCESS_TIME)
@@ -329,32 +329,30 @@ INT_PTR CALLBACK PhpJobPageProc(
                         WCHAR value[PH_TIMESPAN_STR_LEN_1];
                         PhPrintTimeSpan(value, extendedLimits.BasicLimitInformation.PerProcessUserTimeLimit.QuadPart,
                             PH_TIMESPAN_DHMS);
-                        PhpAddLimit(limitsLv, L"Process Time", value);
+                        PhpAddLimit(limitsLv, L"Process time", value);
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_SCHEDULING_CLASS)
                     {
                         WCHAR value[PH_INT32_STR_LEN_1];
                         PhPrintUInt32(value, extendedLimits.BasicLimitInformation.SchedulingClass);
-                        PhpAddLimit(limitsLv, L"Scheduling Class", value);
+                        PhpAddLimit(limitsLv, L"Scheduling class", value);
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
                     {
-                        PhpAddLimit(limitsLv, L"Silent Breakaway OK", L"Enabled");
+                        PhpAddLimit(limitsLv, L"Silent breakaway OK", L"Enabled");
                     }
 
                     if (flags & JOB_OBJECT_LIMIT_WORKINGSET)
                     {
                         PPH_STRING value;
 
-                        value = PhFormatSize(extendedLimits.BasicLimitInformation.MinimumWorkingSetSize, -1);
-                        PhpAddLimit(limitsLv, L"Working Set Minimum", value->Buffer);
-                        PhDereferenceObject(value);
+                        value = PhaFormatSize(extendedLimits.BasicLimitInformation.MinimumWorkingSetSize, -1);
+                        PhpAddLimit(limitsLv, L"Working set minimum", value->Buffer);
 
-                        value = PhFormatSize(extendedLimits.BasicLimitInformation.MaximumWorkingSetSize, -1);
-                        PhpAddLimit(limitsLv, L"Working Set Maximum", value->Buffer);
-                        PhDereferenceObject(value);
+                        value = PhaFormatSize(extendedLimits.BasicLimitInformation.MaximumWorkingSetSize, -1);
+                        PhpAddLimit(limitsLv, L"Working set maximum", value->Buffer);
                     }
                 }
 
@@ -365,19 +363,19 @@ INT_PTR CALLBACK PhpJobPageProc(
                     if (flags & JOB_OBJECT_UILIMIT_DESKTOP)
                         PhpAddLimit(limitsLv, L"Desktop", L"Limited");
                     if (flags & JOB_OBJECT_UILIMIT_DISPLAYSETTINGS)
-                        PhpAddLimit(limitsLv, L"Display Settings", L"Limited");
+                        PhpAddLimit(limitsLv, L"Display settings", L"Limited");
                     if (flags & JOB_OBJECT_UILIMIT_EXITWINDOWS)
-                        PhpAddLimit(limitsLv, L"Exit Windows", L"Limited");
+                        PhpAddLimit(limitsLv, L"Exit windows", L"Limited");
                     if (flags & JOB_OBJECT_UILIMIT_GLOBALATOMS)
-                        PhpAddLimit(limitsLv, L"Global Atoms", L"Limited");
+                        PhpAddLimit(limitsLv, L"Global atoms", L"Limited");
                     if (flags & JOB_OBJECT_UILIMIT_HANDLES)
                         PhpAddLimit(limitsLv, L"Handles", L"Limited");
                     if (flags & JOB_OBJECT_UILIMIT_READCLIPBOARD)
-                        PhpAddLimit(limitsLv, L"Read Clipboard", L"Limited");
+                        PhpAddLimit(limitsLv, L"Read clipboard", L"Limited");
                     if (flags & JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS)
-                        PhpAddLimit(limitsLv, L"System Parameters", L"Limited");
+                        PhpAddLimit(limitsLv, L"System parameters", L"Limited");
                     if (flags & JOB_OBJECT_UILIMIT_WRITECLIPBOARD)
-                        PhpAddLimit(limitsLv, L"Write Clipboard", L"Limited");
+                        PhpAddLimit(limitsLv, L"Write clipboard", L"Limited");
                 }
 
                 NtClose(jobHandle);
@@ -531,7 +529,7 @@ VOID PhpShowJobAdvancedProperties(
         PhFree(accessEntries);
     }
 
-    PropertySheet(&propSheetHeader);
+    PhModalPropertySheet(&propSheetHeader);
 }
 
 static VOID PhpRefreshJobStatisticsInfo(

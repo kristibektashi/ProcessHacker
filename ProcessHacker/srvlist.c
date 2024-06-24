@@ -21,13 +21,17 @@
  */
 
 #include <phapp.h>
+#include <srvlist.h>
+#include <srvprv.h>
 #include <settings.h>
 #include <extmgri.h>
+#include <colmgr.h>
 #include <phplug.h>
 #include <cpysave.h>
 #include <emenu.h>
+#include <svcsup.h>
 
-BOOLEAN PhpServiceNodeHashtableCompareFunction(
+BOOLEAN PhpServiceNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -65,6 +69,7 @@ static PPH_LIST ServiceNodeList; // list of all nodes
 
 static PH_TN_FILTER_SUPPORT FilterSupport;
 
+static BOOLEAN ServiceIconsLoaded = FALSE;
 static HICON ServiceApplicationIcon;
 static HICON ServiceApplicationGoIcon;
 static HICON ServiceCogIcon;
@@ -79,14 +84,14 @@ VOID PhServiceTreeListInitialization(
 {
     ServiceNodeHashtable = PhCreateHashtable(
         sizeof(PPH_SERVICE_NODE),
-        PhpServiceNodeHashtableCompareFunction,
+        PhpServiceNodeHashtableEqualFunction,
         PhpServiceNodeHashtableHashFunction,
         100
         );
     ServiceNodeList = PhCreateList(100);
 }
 
-BOOLEAN PhpServiceNodeHashtableCompareFunction(
+BOOLEAN PhpServiceNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -108,11 +113,6 @@ VOID PhInitializeServiceTreeList(
     _In_ HWND hwnd
     )
 {
-    ServiceApplicationIcon = PH_LOAD_SHARED_IMAGE(MAKEINTRESOURCE(IDI_PHAPPLICATION), IMAGE_ICON);
-    ServiceApplicationGoIcon = PH_LOAD_SHARED_IMAGE(MAKEINTRESOURCE(IDI_PHAPPLICATIONGO), IMAGE_ICON);
-    ServiceCogIcon = PH_LOAD_SHARED_IMAGE(MAKEINTRESOURCE(IDI_COG), IMAGE_ICON);
-    ServiceCogGoIcon = PH_LOAD_SHARED_IMAGE(MAKEINTRESOURCE(IDI_COGGO), IMAGE_ICON);
-
     ServiceTreeListHandle = hwnd;
     PhSetControlTheme(ServiceTreeListHandle, L"explorer");
     SendMessage(TreeNew_GetTooltips(ServiceTreeListHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
@@ -123,16 +123,17 @@ VOID PhInitializeServiceTreeList(
 
     // Default columns
     PhAddTreeNewColumn(hwnd, PHSVTLC_NAME, TRUE, L"Name", 140, PH_ALIGN_LEFT, 0, 0);
-    PhAddTreeNewColumn(hwnd, PHSVTLC_DISPLAYNAME, TRUE, L"Display Name", 220, PH_ALIGN_LEFT, 1, 0);
+    PhAddTreeNewColumn(hwnd, PHSVTLC_DISPLAYNAME, TRUE, L"Display name", 220, PH_ALIGN_LEFT, 1, 0);
     PhAddTreeNewColumn(hwnd, PHSVTLC_TYPE, TRUE, L"Type", 100, PH_ALIGN_LEFT, 2, 0);
     PhAddTreeNewColumn(hwnd, PHSVTLC_STATUS, TRUE, L"Status", 70, PH_ALIGN_LEFT, 3, 0);
-    PhAddTreeNewColumn(hwnd, PHSVTLC_STARTTYPE, TRUE, L"Start Type", 130, PH_ALIGN_LEFT, 4, 0);
+    PhAddTreeNewColumn(hwnd, PHSVTLC_STARTTYPE, TRUE, L"Start type", 130, PH_ALIGN_LEFT, 4, 0);
     PhAddTreeNewColumn(hwnd, PHSVTLC_PID, TRUE, L"PID", 50, PH_ALIGN_RIGHT, 5, DT_RIGHT);
 
-    PhAddTreeNewColumn(hwnd, PHSVTLC_BINARYPATH, FALSE, L"Binary Path", 180, PH_ALIGN_LEFT, -1, DT_PATH_ELLIPSIS);
-    PhAddTreeNewColumn(hwnd, PHSVTLC_ERRORCONTROL, FALSE, L"Error Control", 70, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumn(hwnd, PHSVTLC_BINARYPATH, FALSE, L"Binary path", 180, PH_ALIGN_LEFT, -1, DT_PATH_ELLIPSIS);
+    PhAddTreeNewColumn(hwnd, PHSVTLC_ERRORCONTROL, FALSE, L"Error control", 70, PH_ALIGN_LEFT, -1, 0);
     PhAddTreeNewColumn(hwnd, PHSVTLC_GROUP, FALSE, L"Group", 100, PH_ALIGN_LEFT, -1, 0);
     PhAddTreeNewColumn(hwnd, PHSVTLC_DESCRIPTION, FALSE, L"Description", 200, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumnEx(hwnd, PHSVTLC_KEYMODIFIEDTIME, FALSE, L"Key modified time", 140, PH_ALIGN_LEFT, -1, 0, TRUE);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -288,11 +289,13 @@ VOID PhpRemoveServiceNode(
     if ((index = PhFindItemList(ServiceNodeList, ServiceNode)) != -1)
         PhRemoveItemList(ServiceNodeList, index);
 
-    if (ServiceNode->BinaryPath) PhDereferenceObject(ServiceNode->BinaryPath);
-    if (ServiceNode->LoadOrderGroup) PhDereferenceObject(ServiceNode->LoadOrderGroup);
-    if (ServiceNode->Description) PhDereferenceObject(ServiceNode->Description);
+    PhClearReference(&ServiceNode->BinaryPath);
+    PhClearReference(&ServiceNode->LoadOrderGroup);
+    PhClearReference(&ServiceNode->Description);
 
-    if (ServiceNode->TooltipText) PhDereferenceObject(ServiceNode->TooltipText);
+    PhClearReference(&ServiceNode->TooltipText);
+
+    PhClearReference(&ServiceNode->KeyModifiedTimeText);
 
     PhDereferenceObject(ServiceNode->ServiceItem);
 
@@ -371,6 +374,44 @@ static VOID PhpUpdateServiceNodeDescription(
         }
 
         ServiceNode->ValidMask |= PHSN_DESCRIPTION;
+    }
+}
+
+static VOID PhpUpdateServiceNodeKey(
+    _Inout_ PPH_SERVICE_NODE ServiceNode
+    )
+{
+    if (!(ServiceNode->ValidMask & PHSN_KEY))
+    {
+        static PH_STRINGREF servicesKeyName = PH_STRINGREF_INIT(L"System\\CurrentControlSet\\Services\\");
+
+        HANDLE keyHandle;
+        PPH_STRING keyName;
+
+        keyName = PhConcatStringRef2(&servicesKeyName, &ServiceNode->ServiceItem->Name->sr);
+
+        if (NT_SUCCESS(PhOpenKey(
+            &keyHandle,
+            KEY_READ,
+            PH_KEY_LOCAL_MACHINE,
+            &keyName->sr,
+            0
+            )))
+        {
+            PKEY_BASIC_INFORMATION basicInfo;
+
+            if (NT_SUCCESS(PhQueryKey(keyHandle, KeyBasicInformation, &basicInfo)))
+            {
+                ServiceNode->KeyLastWriteTime = basicInfo->LastWriteTime;
+                PhFree(basicInfo);
+            }
+
+            NtClose(keyHandle);
+        }
+
+        PhDereferenceObject(keyName);
+
+        ServiceNode->ValidMask |= PHSN_KEY;
     }
 }
 
@@ -475,6 +516,14 @@ BEGIN_SORT_FUNCTION(Description)
 }
 END_SORT_FUNCTION
 
+BEGIN_SORT_FUNCTION(KeyModifiedTime)
+{
+    PhpUpdateServiceNodeKey(node1);
+    PhpUpdateServiceNodeKey(node2);
+    sortResult = int64cmp(node1->KeyLastWriteTime.QuadPart, node2->KeyLastWriteTime.QuadPart);
+}
+END_SORT_FUNCTION
+
 BOOLEAN NTAPI PhpServiceTreeNewCallback(
     _In_ HWND hwnd,
     _In_ PH_TREENEW_MESSAGE Message,
@@ -507,7 +556,8 @@ BOOLEAN NTAPI PhpServiceTreeNewCallback(
                     SORT_FUNCTION(BinaryPath),
                     SORT_FUNCTION(ErrorControl),
                     SORT_FUNCTION(Group),
-                    SORT_FUNCTION(Description)
+                    SORT_FUNCTION(Description),
+                    SORT_FUNCTION(KeyModifiedTime)
                 };
                 int (__cdecl *sortFunction)(const void *, const void *);
 
@@ -573,11 +623,11 @@ BOOLEAN NTAPI PhpServiceTreeNewCallback(
                     PhInitFormatS(&format[0], PhGetServiceStartTypeString(serviceItem->StartType));
 
                     if (serviceItem->DelayedStart && serviceItem->HasTriggers)
-                        additional = L" (Delayed, Trigger)";
+                        additional = L" (delayed, trigger)";
                     else if (serviceItem->DelayedStart)
-                        additional = L" (Delayed)";
+                        additional = L" (delayed)";
                     else if (serviceItem->HasTriggers)
-                        additional = L" (Trigger)";
+                        additional = L" (trigger)";
 
                     if (additional)
                         PhInitFormatS(&format[1], additional);
@@ -608,6 +658,18 @@ BOOLEAN NTAPI PhpServiceTreeNewCallback(
                 PhpUpdateServiceNodeDescription(node);
                 getCellText->Text = PhGetStringRef(node->Description);
                 break;
+            case PHSVTLC_KEYMODIFIEDTIME:
+                PhpUpdateServiceNodeKey(node);
+
+                if (node->KeyLastWriteTime.QuadPart != 0)
+                {
+                    SYSTEMTIME systemTime;
+
+                    PhLargeIntegerToLocalSystemTime(&systemTime, &node->KeyLastWriteTime);
+                    PhMoveReference(&node->KeyModifiedTimeText, PhFormatDateTime(&systemTime));
+                    getCellText->Text = node->KeyModifiedTimeText->sr;
+                }
+                break;
             default:
                 return FALSE;
             }
@@ -620,6 +682,16 @@ BOOLEAN NTAPI PhpServiceTreeNewCallback(
             PPH_TREENEW_GET_NODE_ICON getNodeIcon = Parameter1;
 
             node = (PPH_SERVICE_NODE)getNodeIcon->Node;
+
+            if (!ServiceIconsLoaded)
+            {
+                ServiceApplicationIcon = PH_LOAD_SHARED_ICON_SMALL(MAKEINTRESOURCE(IDI_PHAPPLICATION));
+                ServiceApplicationGoIcon = PH_LOAD_SHARED_ICON_SMALL(MAKEINTRESOURCE(IDI_PHAPPLICATIONGO));
+                ServiceCogIcon = PH_LOAD_SHARED_ICON_SMALL(MAKEINTRESOURCE(IDI_COG));
+                ServiceCogGoIcon = PH_LOAD_SHARED_ICON_SMALL(MAKEINTRESOURCE(IDI_COGGO));
+
+                ServiceIconsLoaded = TRUE;
+            }
 
             if (node->ServiceItem->Type == SERVICE_KERNEL_DRIVER || node->ServiceItem->Type == SERVICE_FILE_SYSTEM_DRIVER)
             {
@@ -755,25 +827,21 @@ VOID PhGetSelectedServiceItems(
     _Out_ PULONG NumberOfServices
     )
 {
-    PPH_LIST list;
+    PH_ARRAY array;
     ULONG i;
 
-    list = PhCreateList(2);
+    PhInitializeArray(&array, sizeof(PVOID), 2);
 
     for (i = 0; i < ServiceNodeList->Count; i++)
     {
         PPH_SERVICE_NODE node = ServiceNodeList->Items[i];
 
         if (node->Node.Selected)
-        {
-            PhAddItemList(list, node->ServiceItem);
-        }
+            PhAddItemArray(&array, &node->ServiceItem);
     }
 
-    *Services = PhAllocateCopy(list->Items, sizeof(PVOID) * list->Count);
-    *NumberOfServices = list->Count;
-
-    PhDereferenceObject(list);
+    *NumberOfServices = (ULONG)array.Count;
+    *Services = PhFinalArrayItems(&array);
 }
 
 VOID PhDeselectAllServiceNodes(

@@ -2,7 +2,7 @@
  * Process Hacker -
  *   GUI support functions
  *
- * Copyright (C) 2009-2015 wj32
+ * Copyright (C) 2009-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -20,26 +20,23 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phgui.h>
+#include <ph.h>
+#include <guisup.h>
 #include <guisupp.h>
+#include <shellapi.h>
 #include <windowsx.h>
+#include <uxtheme.h>
+
+#define SCALE_DPI(Value) PhMultiplyDivide(Value, PhGlobalDpi, 96)
 
 _ChangeWindowMessageFilter ChangeWindowMessageFilter_I;
 _IsImmersiveProcess IsImmersiveProcess_I;
 _RunFileDlg RunFileDlg;
-_SetWindowTheme SetWindowTheme_I;
-_IsThemeActive IsThemeActive_I;
-_OpenThemeData OpenThemeData_I;
-_CloseThemeData CloseThemeData_I;
-_IsThemePartDefined IsThemePartDefined_I;
-_DrawThemeBackground DrawThemeBackground_I;
-_DrawThemeText DrawThemeText_I;
-_GetThemeInt GetThemeInt_I;
 _SHAutoComplete SHAutoComplete_I;
-_SHCreateShellItem SHCreateShellItem_I;
-_SHOpenFolderAndSelectItems SHOpenFolderAndSelectItems_I;
-_SHParseDisplayName SHParseDisplayName_I;
-_TaskDialogIndirect TaskDialogIndirect_I;
+
+static PH_INITONCE SharedIconCacheInitOnce = PH_INITONCE_INIT;
+static PPH_HASHTABLE SharedIconCacheHashtable;
+static PH_QUEUED_LOCK SharedIconCacheLock = PH_QUEUED_LOCK_INIT;
 
 VOID PhGuiSupportInitialization(
     VOID
@@ -47,30 +44,16 @@ VOID PhGuiSupportInitialization(
 {
     HMODULE shell32Handle;
     HMODULE shlwapiHandle;
-    HMODULE uxthemeHandle;
 
     shell32Handle = LoadLibrary(L"shell32.dll");
     shlwapiHandle = LoadLibrary(L"shlwapi.dll");
-    uxthemeHandle = LoadLibrary(L"uxtheme.dll");
 
     if (WINDOWS_HAS_UAC)
         ChangeWindowMessageFilter_I = PhGetModuleProcAddress(L"user32.dll", "ChangeWindowMessageFilter");
     if (WINDOWS_HAS_IMMERSIVE)
         IsImmersiveProcess_I = PhGetModuleProcAddress(L"user32.dll", "IsImmersiveProcess");
-    RunFileDlg = (PVOID)GetProcAddress(shell32Handle, (PSTR)61);
-    SetWindowTheme_I = (PVOID)GetProcAddress(uxthemeHandle, "SetWindowTheme");
-    IsThemeActive_I = (PVOID)GetProcAddress(uxthemeHandle, "IsThemeActive");
-    OpenThemeData_I = (PVOID)GetProcAddress(uxthemeHandle, "OpenThemeData");
-    CloseThemeData_I = (PVOID)GetProcAddress(uxthemeHandle, "CloseThemeData");
-    IsThemePartDefined_I = (PVOID)GetProcAddress(uxthemeHandle, "IsThemePartDefined");
-    DrawThemeBackground_I = (PVOID)GetProcAddress(uxthemeHandle, "DrawThemeBackground");
-    DrawThemeText_I = (PVOID)GetProcAddress(uxthemeHandle, "DrawThemeText");
-    GetThemeInt_I = (PVOID)GetProcAddress(uxthemeHandle, "GetThemeInt");
-    SHAutoComplete_I = (PVOID)GetProcAddress(shlwapiHandle, "SHAutoComplete");
-    SHCreateShellItem_I = (PVOID)GetProcAddress(shell32Handle, "SHCreateShellItem");
-    SHOpenFolderAndSelectItems_I = (PVOID)GetProcAddress(shell32Handle, "SHOpenFolderAndSelectItems");
-    SHParseDisplayName_I = (PVOID)GetProcAddress(shell32Handle, "SHParseDisplayName");
-    TaskDialogIndirect_I = PhGetModuleProcAddress(L"comctl32.dll", "TaskDialogIndirect");
+    RunFileDlg = PhGetProcedureAddress(shell32Handle, NULL, 61);
+    SHAutoComplete_I = PhGetProcedureAddress(shlwapiHandle, "SHAutoComplete", 0);
 }
 
 VOID PhSetControlTheme(
@@ -80,8 +63,7 @@ VOID PhSetControlTheme(
 {
     if (WindowsVersion >= WINDOWS_VISTA)
     {
-        if (SetWindowTheme_I)
-            SetWindowTheme_I(Handle, Theme, NULL);
+        SetWindowTheme(Handle, Theme, NULL);
     }
 }
 
@@ -99,7 +81,7 @@ INT PhAddListViewColumn(
 
     column.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM | LVCF_ORDER;
     column.fmt = Format;
-    column.cx = Width;
+    column.cx = Width < 0 ? -Width : SCALE_DPI(Width);
     column.pszText = Text;
     column.iSubItem = SubItemIndex;
     column.iOrder = DisplayIndex;
@@ -245,6 +227,7 @@ BOOLEAN PhLoadListViewColumnSettings(
     ULONG columnIndex;
     ULONG orderArray[ORDER_LIMIT]; // HACK, but reasonable limit
     ULONG maxOrder;
+    ULONG scale;
 
     if (Settings->Length == 0)
         return FALSE;
@@ -254,6 +237,24 @@ BOOLEAN PhLoadListViewColumnSettings(
     memset(orderArray, 0, sizeof(orderArray));
     maxOrder = 0;
 
+    if (remainingPart.Length != 0 && remainingPart.Buffer[0] == '@')
+    {
+        PH_STRINGREF scalePart;
+        ULONG64 integer;
+
+        PhSkipStringRef(&remainingPart, sizeof(WCHAR));
+        PhSplitStringRefAtChar(&remainingPart, '|', &scalePart, &remainingPart);
+
+        if (scalePart.Length == 0 || !PhStringToInteger64(&scalePart, 10, &integer))
+            return FALSE;
+
+        scale = (ULONG)integer;
+    }
+    else
+    {
+        scale = PhGlobalDpi;
+    }
+
     while (remainingPart.Length != 0)
     {
         PH_STRINGREF columnPart;
@@ -261,6 +262,7 @@ BOOLEAN PhLoadListViewColumnSettings(
         PH_STRINGREF widthPart;
         ULONG64 integer;
         ULONG order;
+        ULONG width;
         LVCOLUMN lvColumn;
 
         PhSplitStringRefAtChar(&remainingPart, '|', &columnPart, &remainingPart);
@@ -293,8 +295,13 @@ BOOLEAN PhLoadListViewColumnSettings(
         if (!PhStringToInteger64(&widthPart, 10, &integer))
             return FALSE;
 
+        width = (ULONG)integer;
+
+        if (scale != PhGlobalDpi && scale != 0)
+            width = PhMultiplyDivide(width, PhGlobalDpi, scale);
+
         lvColumn.mask = LVCF_WIDTH;
-        lvColumn.cx = (ULONG)integer;
+        lvColumn.cx = width;
         ListView_SetColumn(ListViewHandle, columnIndex, &lvColumn);
 
         columnIndex++;
@@ -314,6 +321,8 @@ PPH_STRING PhSaveListViewColumnSettings(
     LVCOLUMN lvColumn;
 
     PhInitializeStringBuilder(&stringBuilder, 20);
+
+    PhAppendFormatStringBuilder(&stringBuilder, L"@%u|", PhGlobalDpi);
 
     lvColumn.mask = LVCF_WIDTH | LVCF_ORDER;
 
@@ -587,11 +596,11 @@ VOID PhGetSelectedListViewItemParams(
     _Out_ PULONG NumberOfItems
     )
 {
-    PPH_LIST list;
+    PH_ARRAY array;
     ULONG index;
     PVOID param;
 
-    list = PhCreateList(2);
+    PhInitializeArray(&array, sizeof(PVOID), 2);
     index = -1;
 
     while ((index = PhFindListViewItemByFlags(
@@ -600,20 +609,12 @@ VOID PhGetSelectedListViewItemParams(
         LVNI_SELECTED
         )) != -1)
     {
-        if (PhGetListViewItemParam(
-            hWnd,
-            index,
-            &param
-            ))
-        {
-            PhAddItemList(list, param);
-        }
+        if (PhGetListViewItemParam(hWnd, index, &param))
+            PhAddItemArray(&array, &param);
     }
 
-    *Items = PhAllocateCopy(list->Items, sizeof(PVOID) * list->Count);
-    *NumberOfItems = list->Count;
-
-    PhDereferenceObject(list);
+    *NumberOfItems = (ULONG)array.Count;
+    *Items = PhFinalArrayItems(&array);
 }
 
 VOID PhSetImageListBitmap(
@@ -634,13 +635,160 @@ VOID PhSetImageListBitmap(
     }
 }
 
+static BOOLEAN SharedIconCacheHashtableEqualFunction(
+    _In_ PVOID Entry1,
+    _In_ PVOID Entry2
+    )
+{
+    PPHP_ICON_ENTRY entry1 = Entry1;
+    PPHP_ICON_ENTRY entry2 = Entry2;
+
+    if (entry1->InstanceHandle != entry2->InstanceHandle ||
+        entry1->Width != entry2->Width ||
+        entry1->Height != entry2->Height)
+    {
+        return FALSE;
+    }
+
+    if (IS_INTRESOURCE(entry1->Name))
+    {
+        if (IS_INTRESOURCE(entry2->Name))
+            return entry1->Name == entry2->Name;
+        else
+            return FALSE;
+    }
+    else
+    {
+        if (!IS_INTRESOURCE(entry2->Name))
+            return PhEqualStringZ(entry1->Name, entry2->Name, FALSE);
+        else
+            return FALSE;
+    }
+}
+
+static ULONG SharedIconCacheHashtableHashFunction(
+    _In_ PVOID Entry
+    )
+{
+    PPHP_ICON_ENTRY entry = Entry;
+    ULONG nameHash;
+
+    if (IS_INTRESOURCE(entry->Name))
+        nameHash = PtrToUlong(entry->Name);
+    else
+        nameHash = PhHashBytes((PUCHAR)entry->Name, PhCountStringZ(entry->Name));
+
+    return nameHash ^ (PtrToUlong(entry->InstanceHandle) >> 5) ^ (entry->Width << 3) ^ entry->Height;
+}
+
+HICON PhLoadIcon(
+    _In_opt_ HINSTANCE InstanceHandle,
+    _In_ PWSTR Name,
+    _In_ ULONG Flags,
+    _In_opt_ ULONG Width,
+    _In_opt_ ULONG Height
+    )
+{
+    static _LoadIconMetric loadIconMetric;
+    static _LoadIconWithScaleDown loadIconWithScaleDown;
+
+    PHP_ICON_ENTRY entry;
+    PPHP_ICON_ENTRY actualEntry;
+    HICON icon = NULL;
+
+    if (PhBeginInitOnce(&SharedIconCacheInitOnce))
+    {
+        loadIconMetric = (_LoadIconMetric)PhGetModuleProcAddress(L"comctl32.dll", "LoadIconMetric");
+        loadIconWithScaleDown = (_LoadIconWithScaleDown)PhGetModuleProcAddress(L"comctl32.dll", "LoadIconWithScaleDown");
+        SharedIconCacheHashtable = PhCreateHashtable(sizeof(PHP_ICON_ENTRY),
+            SharedIconCacheHashtableEqualFunction, SharedIconCacheHashtableHashFunction, 10);
+        PhEndInitOnce(&SharedIconCacheInitOnce);
+    }
+
+    if (Flags & PH_LOAD_ICON_SHARED)
+    {
+        PhAcquireQueuedLockExclusive(&SharedIconCacheLock);
+
+        entry.InstanceHandle = InstanceHandle;
+        entry.Name = Name;
+        entry.Width = PhpGetIconEntrySize(Width, Flags);
+        entry.Height = PhpGetIconEntrySize(Height, Flags);
+        actualEntry = PhFindEntryHashtable(SharedIconCacheHashtable, &entry);
+
+        if (actualEntry)
+        {
+            icon = actualEntry->Icon;
+            PhReleaseQueuedLockExclusive(&SharedIconCacheLock);
+            return icon;
+        }
+    }
+
+    if (Flags & (PH_LOAD_ICON_SIZE_SMALL | PH_LOAD_ICON_SIZE_LARGE))
+    {
+        if (loadIconMetric)
+            loadIconMetric(InstanceHandle, Name, (Flags & PH_LOAD_ICON_SIZE_SMALL) ? LIM_SMALL : LIM_LARGE, &icon);
+    }
+    else
+    {
+        if (loadIconWithScaleDown)
+            loadIconWithScaleDown(InstanceHandle, Name, Width, Height, &icon);
+    }
+
+    if (!icon && !(Flags & PH_LOAD_ICON_STRICT))
+    {
+        if (Flags & PH_LOAD_ICON_SIZE_SMALL)
+        {
+            static ULONG smallWidth = 0;
+            static ULONG smallHeight = 0;
+
+            if (!smallWidth)
+                smallWidth = GetSystemMetrics(SM_CXSMICON);
+            if (!smallHeight)
+                smallHeight = GetSystemMetrics(SM_CYSMICON);
+
+            Width = smallWidth;
+            Height = smallHeight;
+        }
+        else if (Flags & PH_LOAD_ICON_SIZE_LARGE)
+        {
+            static ULONG largeWidth = 0;
+            static ULONG largeHeight = 0;
+
+            if (!largeWidth)
+                largeWidth = GetSystemMetrics(SM_CXICON);
+            if (!largeHeight)
+                largeHeight = GetSystemMetrics(SM_CYICON);
+
+            Width = largeWidth;
+            Height = largeHeight;
+        }
+
+        icon = LoadImage(InstanceHandle, Name, IMAGE_ICON, Width, Height, 0);
+    }
+
+    if (Flags & PH_LOAD_ICON_SHARED)
+    {
+        if (icon)
+        {
+            if (!IS_INTRESOURCE(Name))
+                entry.Name = PhDuplicateStringZ(Name);
+            entry.Icon = icon;
+            PhAddEntryHashtable(SharedIconCacheHashtable, &entry);
+        }
+
+        PhReleaseQueuedLockExclusive(&SharedIconCacheLock);
+    }
+
+    return icon;
+}
+
 /**
  * Gets the default icon used for executable files.
  *
- * \param SmallIcon A variable which receives the small default executable icon.
- * Do not destroy the icon using DestroyIcon(); it is shared between callers.
- * \param LargeIcon A variable which receives the large default executable icon.
- * Do not destroy the icon using DestroyIcon(); it is shared between callers.
+ * \param SmallIcon A variable which receives the small default executable icon. Do not destroy the
+ * icon using DestroyIcon(); it is shared between callers.
+ * \param LargeIcon A variable which receives the large default executable icon. Do not destroy the
+ * icon using DestroyIcon(); it is shared between callers.
  */
 VOID PhGetStockApplicationIcon(
     _Out_opt_ HICON *SmallIcon,
@@ -651,12 +799,11 @@ VOID PhGetStockApplicationIcon(
     static HICON smallIcon = NULL;
     static HICON largeIcon = NULL;
 
-    // This no longer uses SHGetFileInfo because it is *very* slow and causes
-    // many other DLLs to be loaded, increasing memory usage. The worst thing
-    // about it, however, is that it is horribly incompatible with multi-threading.
-    // The first time it is called, it tries to perform some one-time initialization.
-    // It guards this with a lock, but when multiple threads try to call the function
-    // at the same time, instead of waiting for initialization to finish it simply
+    // This no longer uses SHGetFileInfo because it is *very* slow and causes many other DLLs to be
+    // loaded, increasing memory usage. The worst thing about it, however, is that it is horribly
+    // incompatible with multi-threading. The first time it is called, it tries to perform some
+    // one-time initialization. It guards this with a lock, but when multiple threads try to call
+    // the function at the same time, instead of waiting for initialization to finish it simply
     // fails the other threads.
 
     if (PhBeginInitOnce(&initOnce))
@@ -664,7 +811,8 @@ VOID PhGetStockApplicationIcon(
         PPH_STRING systemDirectory;
         PPH_STRING dllFileName;
 
-        // imageres,11 (Windows 10 and above), user32,0 (Vista and above) or shell32,2 (XP) contains the default application icon.
+        // imageres,11 (Windows 10 and above), user32,0 (Vista and above) or shell32,2 (XP) contains
+        // the default application icon.
 
         if (systemDirectory = PhGetSystemDirectory())
         {
@@ -876,6 +1024,80 @@ HWND PhCreateDialogFromTemplate(
     return dialogHandle;
 }
 
+BOOLEAN PhModalPropertySheet(
+    _Inout_ PROPSHEETHEADER *Header
+    )
+{
+    // PropertySheet incorrectly discards WM_QUIT messages in certain cases, so we will use our own
+    // message loop. An example of this is when GetMessage (called by PropertySheet's message loop)
+    // dispatches a message directly from kernel-mode that causes the property sheet to close. In
+    // that case PropertySheet will retrieve the WM_QUIT message but will ignore it because of its
+    // buggy logic.
+
+    // This is also a good opportunity to introduce an auto-pool.
+
+    PH_AUTO_POOL autoPool;
+    HWND oldFocus;
+    HWND topLevelOwner;
+    HWND hwnd;
+    BOOL result;
+    MSG message;
+
+    PhInitializeAutoPool(&autoPool);
+
+    oldFocus = GetFocus();
+    topLevelOwner = Header->hwndParent;
+
+    while (topLevelOwner && (GetWindowLong(topLevelOwner, GWL_STYLE) & WS_CHILD))
+        topLevelOwner = GetParent(topLevelOwner);
+
+    if (topLevelOwner && (topLevelOwner == GetDesktopWindow() || EnableWindow(topLevelOwner, FALSE)))
+        topLevelOwner = NULL;
+
+    Header->dwFlags |= PSH_MODELESS;
+    hwnd = (HWND)PropertySheet(Header);
+
+    if (!hwnd)
+    {
+        if (topLevelOwner)
+            EnableWindow(topLevelOwner, TRUE);
+
+        return FALSE;
+    }
+
+    while (result = GetMessage(&message, NULL, 0, 0))
+    {
+        if (result == -1)
+            break;
+
+        if (!PropSheet_IsDialogMessage(hwnd, &message))
+        {
+            TranslateMessage(&message);
+            DispatchMessage(&message);
+        }
+
+        PhDrainAutoPool(&autoPool);
+
+        // Destroy the window when necessary.
+        if (!PropSheet_GetCurrentPageHwnd(hwnd))
+            break;
+    }
+
+    if (result == 0)
+        PostQuitMessage((INT)message.wParam);
+    if (Header->hwndParent && GetActiveWindow() == hwnd)
+        SetActiveWindow(Header->hwndParent);
+    if (topLevelOwner)
+        EnableWindow(topLevelOwner, TRUE);
+    if (oldFocus && IsWindow(oldFocus))
+        SetFocus(oldFocus);
+
+    DestroyWindow(hwnd);
+    PhDeleteAutoPool(&autoPool);
+
+    return TRUE;
+}
+
 VOID PhInitializeLayoutManager(
     _Out_ PPH_LAYOUT_MANAGER Manager,
     _In_ HWND RootWindowHandle
@@ -906,8 +1128,7 @@ VOID PhDeleteLayoutManager(
     PhDereferenceObject(Manager->List);
 }
 
-// HACK: The maths below is all horribly broken, especially the HACK for multiline tab
-// controls.
+// HACK: The math below is all horribly broken, especially the HACK for multiline tab controls.
 
 PPH_LAYOUT_ITEM PhAddLayoutItem(
     _Inout_ PPH_LAYOUT_MANAGER Manager,
@@ -932,8 +1153,8 @@ PPH_LAYOUT_ITEM PhAddLayoutItem(
 
     if (layoutItem->ParentItem != layoutItem->LayoutParentItem)
     {
-        // Fix the margin because the item has a dummy parent. They share
-        // the same layout parent item.
+        // Fix the margin because the item has a dummy parent. They share the same layout parent
+        // item.
         layoutItem->Margin.top -= layoutItem->ParentItem->Rect.top;
         layoutItem->Margin.left -= layoutItem->ParentItem->Rect.left;
         layoutItem->Margin.right = layoutItem->ParentItem->Margin.right;
@@ -1096,7 +1317,8 @@ VOID PhpLayoutItemLayout(
         }
         else
         {
-            // This is needed for tab controls, so that TabCtrl_AdjustRect will give us an up-to-date result.
+            // This is needed for tab controls, so that TabCtrl_AdjustRect will give us an
+            // up-to-date result.
             SetWindowPos(
                 Item->Handle,
                 NULL, rect.left, rect.top,

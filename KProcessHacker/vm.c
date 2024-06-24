@@ -1,7 +1,7 @@
 /*
  * KProcessHacker
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -29,8 +29,6 @@ ULONG KphpGetCopyExceptionInfo(
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, KphCopyVirtualMemory)
-#pragma alloc_text(PAGE, KpiReadVirtualMemory)
-#pragma alloc_text(PAGE, KpiWriteVirtualMemory)
 #pragma alloc_text(PAGE, KpiReadVirtualMemoryUnsafe)
 #endif
 
@@ -74,8 +72,7 @@ ULONG KphpGetCopyExceptionInfo(
  * \param ToAddress The target address.
  * \param BufferLength The number of bytes to copy.
  * \param AccessMode The mode in which to perform access checks.
- * \param ReturnLength A variable which receives the number of
- * bytes copied.
+ * \param ReturnLength A variable which receives the number of bytes copied.
  */
 NTSTATUS KphCopyVirtualMemory(
     __in PEPROCESS FromProcess,
@@ -111,8 +108,8 @@ NTSTATUS KphCopyVirtualMemory(
     sourceAddress = FromAddress;
     targetAddress = ToAddress;
 
-    // We don't check if buffer == NULL when freeing. If buffer doesn't need
-    // to be freed, set to stackBuffer, not NULL.
+    // We don't check if buffer == NULL when freeing. If buffer doesn't need to be freed, set to
+    // stackBuffer, not NULL.
     buffer = stackBuffer;
 
     mappedTotalSize = (KPH_MAPPED_COPY_PAGES - 2) * PAGE_SIZE;
@@ -125,8 +122,8 @@ NTSTATUS KphCopyVirtualMemory(
 
     while (stillToCopy)
     {
-        // If we're at the last copy block, copy the remaining bytes instead
-        // of the whole block size.
+        // If we're at the last copy block, copy the remaining bytes instead of the whole block
+        // size.
         if (blockSize > stillToCopy)
             blockSize = stillToCopy;
 
@@ -148,9 +145,8 @@ NTSTATUS KphCopyVirtualMemory(
             }
             else
             {
-                // Don't allocate the buffer if we've done so already.
-                // Note that the block size never increases, so this allocation
-                // will always be OK.
+                // Don't allocate the buffer if we've done so already. Note that the block size
+                // never increases, so this allocation will always be OK.
                 if (buffer == stackBuffer)
                 {
                     // Keep trying to allocate a buffer.
@@ -302,228 +298,16 @@ NTSTATUS KphCopyVirtualMemory(
 }
 
 /**
- * Copies memory from another process into the current process.
- *
- * \param ProcessHandle A handle to a process. The handle must
- * have PROCESS_VM_READ access.
- * \param BaseAddress The address from which memory is to be copied.
- * \param Buffer A buffer which receives the copied memory.
- * \param BufferSize The number of bytes to copy.
- * \param NumberOfBytesRead A variable which receives the number
- * of bytes copied to the buffer.
- * \param AccessMode The mode in which to perform access checks.
- */
-NTSTATUS KpiReadVirtualMemory(
-    __in HANDLE ProcessHandle,
-    __in PVOID BaseAddress,
-    __out_bcount(BufferSize) PVOID Buffer,
-    __in SIZE_T BufferSize,
-    __out_opt PSIZE_T NumberOfBytesRead,
-    __in KPROCESSOR_MODE AccessMode
-    )
-{
-    NTSTATUS status;
-    PEPROCESS process;
-    SIZE_T numberOfBytesRead;
-
-    PAGED_CODE();
-
-    if (AccessMode != KernelMode)
-    {
-        if (
-            (ULONG_PTR)BaseAddress + BufferSize < (ULONG_PTR)BaseAddress ||
-            (ULONG_PTR)Buffer + BufferSize < (ULONG_PTR)Buffer ||
-            (ULONG_PTR)BaseAddress + BufferSize > (ULONG_PTR)MmHighestUserAddress ||
-            (ULONG_PTR)Buffer + BufferSize > (ULONG_PTR)MmHighestUserAddress
-            )
-        {
-            return STATUS_ACCESS_VIOLATION;
-        }
-
-        if (NumberOfBytesRead)
-        {
-            __try
-            {
-                ProbeForWrite(NumberOfBytesRead, sizeof(SIZE_T), sizeof(SIZE_T));
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return GetExceptionCode();
-            }
-        }
-    }
-
-    if (BufferSize != 0)
-    {
-        status = ObReferenceObjectByHandle(
-            ProcessHandle,
-            0,
-            *PsProcessType,
-            AccessMode,
-            &process,
-            NULL
-            );
-
-        if (NT_SUCCESS(status))
-        {
-            status = KphCopyVirtualMemory(
-                process,
-                BaseAddress,
-                PsGetCurrentProcess(),
-                Buffer,
-                BufferSize,
-                AccessMode,
-                &numberOfBytesRead
-                );
-            ObDereferenceObject(process);
-        }
-    }
-    else
-    {
-        numberOfBytesRead = 0;
-        status = STATUS_SUCCESS;
-    }
-
-    if (NumberOfBytesRead)
-    {
-        if (AccessMode != KernelMode)
-        {
-            __try
-            {
-                *NumberOfBytesRead = numberOfBytesRead;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                // Don't mess with the status.
-                NOTHING;
-            }
-        }
-        else
-        {
-            *NumberOfBytesRead = numberOfBytesRead;
-        }
-    }
-
-    return status;
-}
-
-/**
- * Copies memory from the current process into another process.
- *
- * \param ProcessHandle A handle to a process. The handle must
- * have PROCESS_VM_WRITE access.
- * \param BaseAddress The address to which memory is to be copied.
- * \param Buffer A buffer which contains the memory to copy.
- * \param BufferSize The number of bytes to copy.
- * \param NumberOfBytesWritten A variable which receives the number
- * of bytes copied from the buffer.
- * \param AccessMode The mode in which to perform access checks.
- */
-NTSTATUS KpiWriteVirtualMemory(
-    __in HANDLE ProcessHandle,
-    __in_opt PVOID BaseAddress,
-    __in_bcount(BufferSize) PVOID Buffer,
-    __in SIZE_T BufferSize,
-    __out_opt PSIZE_T NumberOfBytesWritten,
-    __in KPROCESSOR_MODE AccessMode
-    )
-{
-    NTSTATUS status;
-    PEPROCESS process;
-    SIZE_T numberOfBytesWritten;
-
-    PAGED_CODE();
-
-    if (AccessMode != KernelMode)
-    {
-        if (
-            (ULONG_PTR)BaseAddress + BufferSize < (ULONG_PTR)BaseAddress ||
-            (ULONG_PTR)Buffer + BufferSize < (ULONG_PTR)Buffer ||
-            (ULONG_PTR)BaseAddress + BufferSize > (ULONG_PTR)MmHighestUserAddress ||
-            (ULONG_PTR)Buffer + BufferSize > (ULONG_PTR)MmHighestUserAddress
-            )
-        {
-            return STATUS_ACCESS_VIOLATION;
-        }
-
-        if (NumberOfBytesWritten)
-        {
-            __try
-            {
-                ProbeForWrite(NumberOfBytesWritten, sizeof(SIZE_T), sizeof(SIZE_T));
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return GetExceptionCode();
-            }
-        }
-    }
-
-    if (BufferSize != 0)
-    {
-        status = ObReferenceObjectByHandle(
-            ProcessHandle,
-            0,
-            *PsProcessType,
-            AccessMode,
-            &process,
-            NULL
-            );
-
-        if (NT_SUCCESS(status))
-        {
-            status = KphCopyVirtualMemory(
-                PsGetCurrentProcess(),
-                Buffer,
-                process,
-                BaseAddress,
-                BufferSize,
-                AccessMode,
-                &numberOfBytesWritten
-                );
-            ObDereferenceObject(process);
-        }
-    }
-    else
-    {
-        numberOfBytesWritten = 0;
-        status = STATUS_SUCCESS;
-    }
-
-    if (NumberOfBytesWritten)
-    {
-        if (AccessMode != KernelMode)
-        {
-            __try
-            {
-                *NumberOfBytesWritten = numberOfBytesWritten;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                // Don't mess with the status.
-                NOTHING;
-            }
-        }
-        else
-        {
-            *NumberOfBytesWritten = numberOfBytesWritten;
-        }
-    }
-
-    return status;
-}
-
-/**
  * Copies process or kernel memory into the current process.
  *
- * \param ProcessHandle A handle to a process. The handle must
- * have PROCESS_VM_READ access. This parameter may be NULL if
- * \a BaseAddress lies above the user-mode range.
+ * \param ProcessHandle A handle to a process. The handle must have PROCESS_VM_READ access. This
+ * parameter may be NULL if \a BaseAddress lies above the user-mode range.
  * \param BaseAddress The address from which memory is to be copied.
  * \param Buffer A buffer which receives the copied memory.
  * \param BufferSize The number of bytes to copy.
- * \param NumberOfBytesRead A variable which receives the number
- * of bytes copied to the buffer.
+ * \param NumberOfBytesRead A variable which receives the number of bytes copied to the buffer.
+ * \param Key An access key. If no valid L2 key is provided, the function fails.
+ * \param Client The client that initiated the request.
  * \param AccessMode The mode in which to perform access checks.
  */
 NTSTATUS KpiReadVirtualMemoryUnsafe(
@@ -532,6 +316,8 @@ NTSTATUS KpiReadVirtualMemoryUnsafe(
     __out_bcount(BufferSize) PVOID Buffer,
     __in SIZE_T BufferSize,
     __out_opt PSIZE_T NumberOfBytesRead,
+    __in_opt KPH_KEY Key,
+    __in PKPH_CLIENT Client,
     __in KPROCESSOR_MODE AccessMode
     )
 {
@@ -540,6 +326,9 @@ NTSTATUS KpiReadVirtualMemoryUnsafe(
     SIZE_T numberOfBytesRead;
 
     PAGED_CODE();
+
+    if (!NT_SUCCESS(status = KphValidateKey(KphKeyLevel2, Key, Client, AccessMode)))
+        return status;
 
     if (AccessMode != KernelMode)
     {
@@ -573,6 +362,11 @@ NTSTATUS KpiReadVirtualMemoryUnsafe(
             ULONG_PTR page;
             ULONG_PTR pageEnd;
 
+            status = KphValidateAddressForSystemModules(BaseAddress, BufferSize);
+
+            if (!NT_SUCCESS(status))
+                return status;
+
             // Kernel memory copy (unsafe)
 
             page = (ULONG_PTR)BaseAddress & ~(PAGE_SIZE - 1);
@@ -603,7 +397,7 @@ NTSTATUS KpiReadVirtualMemoryUnsafe(
 
             status = ObReferenceObjectByHandle(
                 ProcessHandle,
-                0,
+                PROCESS_VM_READ,
                 *PsProcessType,
                 AccessMode,
                 &process,

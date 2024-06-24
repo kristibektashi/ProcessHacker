@@ -1,9 +1,16 @@
 #ifndef _PH_COLORBOX_H
 #define _PH_COLORBOX_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define PH_COLORBOX_CLASSNAME L"PhColorBox"
 
-BOOLEAN PhColorBoxInitialization(
+PHLIBAPI
+BOOLEAN
+NTAPI
+PhColorBoxInitialization(
     VOID
     );
 
@@ -15,5 +22,9 @@ BOOLEAN PhColorBoxInitialization(
 
 #define ColorBox_GetColor(hWnd) \
     ((COLORREF)SendMessage((hWnd), CBCM_GETCOLOR, 0, 0))
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,21 +1,23 @@
 #ifndef PHAPP_H
 #define PHAPP_H
 
-#ifdef PHAPP_EXPORT
-#define PHAPPAPI __declspec(dllexport)
+#if !defined(_PHAPP_)
+#define PHAPPAPI __declspec(dllimport)
 #else
-#define PHAPPAPI
+#define PHAPPAPI __declspec(dllexport)
 #endif
 
-#include <phgui.h>
+#include <ph.h>
+#include <guisup.h>
+#include <provider.h>
+#include <filestream.h>
+#include <fastlock.h>
 #include <treenew.h>
 #include <graph.h>
 #include <circbuf.h>
 #include <dltmgr.h>
 #include <phnet.h>
-#include <providers.h>
-#include <colmgr.h>
-#include <uimodels.h>
+#include <phfwddef.h>
 #include "../resource.h"
 
 #define KPH_ERROR_MESSAGE (L"KProcessHacker does not support your operating system " \
@@ -32,20 +34,20 @@ typedef struct _PH_STARTUP_PARAMETERS
     {
         struct
         {
-            ULONG NoKph : 1;
             ULONG NoSettings : 1;
-            ULONG NoPlugins : 1;
-            ULONG ShowHidden : 1;
             ULONG ShowVisible : 1;
-            ULONG ShowOptions : 1;
-            ULONG NewInstance : 1;
-            ULONG Elevate : 1;
-            ULONG Silent : 1;
+            ULONG ShowHidden : 1;
             ULONG CommandMode : 1;
-            ULONG PhSvc : 1;
+            ULONG NoKph : 1;
             ULONG InstallKph : 1;
             ULONG UninstallKph : 1;
             ULONG Debug : 1;
+            ULONG ShowOptions : 1;
+            ULONG PhSvc : 1;
+            ULONG NoPlugins : 1;
+            ULONG NewInstance : 1;
+            ULONG Elevate : 1;
+            ULONG Silent : 1;
             ULONG Help : 1;
             ULONG Spare : 17;
         };
@@ -69,6 +71,7 @@ typedef struct _PH_STARTUP_PARAMETERS
 
     PPH_LIST PluginParameters;
     PPH_STRING SelectTab;
+    PPH_STRING SysInfo;
 } PH_STARTUP_PARAMETERS, *PPH_STARTUP_PARAMETERS;
 
 extern PPH_STRING PhApplicationDirectory;
@@ -85,6 +88,8 @@ extern PH_STARTUP_PARAMETERS PhStartupParameters;
 
 extern PH_PROVIDER_THREAD PhPrimaryProviderThread;
 extern PH_PROVIDER_THREAD PhSecondaryProviderThread;
+
+#define PH_SCALE_DPI(Value) PhMultiplyDivide(Value, PhGlobalDpi, 96)
 
 // begin_phapppub
 PHAPPAPI
@@ -139,6 +144,7 @@ extern GUID VISTA_CONTEXT_GUID;
 extern GUID WIN7_CONTEXT_GUID;
 extern GUID WIN8_CONTEXT_GUID;
 extern GUID WINBLUE_CONTEXT_GUID;
+extern GUID WINTHRESHOLD_CONTEXT_GUID;
 
 typedef struct PACKAGE_ID PACKAGE_ID;
 
@@ -311,7 +317,9 @@ PhCopyListView(
     );
 
 PHAPPAPI
-VOID PhHandleListViewNotifyForCopy(
+VOID
+NTAPI
+PhHandleListViewNotifyForCopy(
     _In_ LPARAM lParam,
     _In_ HWND ListViewHandle
     );
@@ -582,7 +590,12 @@ BOOLEAN PhShellOpenKey2(
     _In_ PPH_STRING KeyName
     );
 
-#define PH_LOAD_SHARED_IMAGE(Name, Type) LoadImage(PhInstanceHandle, (Name), (Type), 0, 0, LR_SHARED)
+PPH_STRING PhPcre2GetErrorMessage(
+    _In_ INT ErrorCode
+    );
+
+#define PH_LOAD_SHARED_ICON_SMALL(Name) PhLoadIcon(PhInstanceHandle, (Name), PH_LOAD_ICON_SHARED | PH_LOAD_ICON_SIZE_SMALL, 0, 0)
+#define PH_LOAD_SHARED_ICON_LARGE(Name) PhLoadIcon(PhInstanceHandle, (Name), PH_LOAD_ICON_SHARED | PH_LOAD_ICON_SIZE_LARGE, 0, 0)
 
 FORCEINLINE PVOID PhpGenericPropertyPageHeader(
     _In_ HWND hwndDlg,
@@ -624,10 +637,8 @@ FORCEINLINE PVOID PhpGenericPropertyPageHeader(
 
 #define PH_MAINWND_CLASSNAME L"ProcessHacker" // phapppub
 
-#ifndef PH_MAINWND_PRIVATE
 PHAPPAPI extern HWND PhMainWndHandle; // phapppub
 extern BOOLEAN PhMainWndExiting;
-#endif
 
 #define WM_PH_FIRST (WM_APP + 99)
 #define WM_PH_ACTIVATE (WM_APP + 99)
@@ -1075,6 +1086,7 @@ typedef struct _PH_LOG_ENTRY
             PPH_STRING Name;
             HANDLE ParentProcessId;
             PPH_STRING ParentName;
+            NTSTATUS ExitStatus;
         } Process;
         struct
         {
@@ -1086,10 +1098,8 @@ typedef struct _PH_LOG_ENTRY
     UCHAR Buffer[1];
 } PH_LOG_ENTRY, *PPH_LOG_ENTRY;
 
-#ifndef PH_LOG_PRIVATE
 extern PH_CIRCULAR_BUFFER_PVOID PhLogBuffer;
 PHAPPAPI extern PH_CALLBACK PhLoggedCallback; // phapppub
-#endif
 
 VOID PhLogInitialization(
     VOID
@@ -1102,6 +1112,7 @@ VOID PhClearLogEntries(
 VOID PhLogProcessEntry(
     _In_ UCHAR Type,
     _In_ HANDLE ProcessId,
+    _In_opt_ HANDLE QueryHandle,
     _In_ PPH_STRING Name,
     _In_opt_ HANDLE ParentProcessId,
     _In_opt_ PPH_STRING ParentName
@@ -1135,390 +1146,6 @@ PhFormatLogEntry(
 VOID PhShowDebugConsole(
     VOID
     );
-
-// actions
-
-typedef enum _PH_ACTION_ELEVATION_LEVEL
-{
-    NeverElevateAction = 0,
-    PromptElevateAction = 1,
-    AlwaysElevateAction = 2
-} PH_ACTION_ELEVATION_LEVEL;
-
-// begin_phapppub
-typedef enum _PH_PHSVC_MODE
-{
-    ElevatedPhSvcMode,
-    Wow64PhSvcMode
-} PH_PHSVC_MODE;
-            
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiConnectToPhSvc(
-    _In_opt_ HWND hWnd,
-    _In_ BOOLEAN ConnectOnly
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiConnectToPhSvcEx(
-    _In_opt_ HWND hWnd,
-    _In_ PH_PHSVC_MODE Mode,
-    _In_ BOOLEAN ConnectOnly
-    );
-
-PHAPPAPI
-VOID
-NTAPI
-PhUiDisconnectFromPhSvc(
-    VOID
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiLockComputer(
-    _In_ HWND hWnd
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiLogoffComputer(
-    _In_ HWND hWnd
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSleepComputer(
-    _In_ HWND hWnd
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiHibernateComputer(
-    _In_ HWND hWnd
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiRestartComputer(
-    _In_ HWND hWnd,
-    _In_ ULONG Flags
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiShutdownComputer(
-    _In_ HWND hWnd,
-    _In_ ULONG Flags
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiConnectSession(
-    _In_ HWND hWnd,
-    _In_ ULONG SessionId
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiDisconnectSession(
-    _In_ HWND hWnd,
-    _In_ ULONG SessionId
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiLogoffSession(
-    _In_ HWND hWnd,
-    _In_ ULONG SessionId
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiTerminateProcesses(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM *Processes,
-    _In_ ULONG NumberOfProcesses
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiTerminateTreeProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSuspendProcesses(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM *Processes,
-    _In_ ULONG NumberOfProcesses
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiResumeProcesses(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM *Processes,
-    _In_ ULONG NumberOfProcesses
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiRestartProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiDebugProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiReduceWorkingSetProcesses(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM *Processes,
-    _In_ ULONG NumberOfProcesses
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetVirtualizationProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process,
-    _In_ BOOLEAN Enable
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiDetachFromDebuggerProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiInjectDllProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetIoPriorityProcesses(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM *Processes,
-    _In_ ULONG NumberOfProcesses,
-    _In_ ULONG IoPriority
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetPagePriorityProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process,
-    _In_ ULONG PagePriority
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetPriorityProcesses(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM *Processes,
-    _In_ ULONG NumberOfProcesses,
-    _In_ ULONG PriorityClass
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetDepStatusProcess(
-    _In_ HWND hWnd,
-    _In_ PPH_PROCESS_ITEM Process
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiStartService(
-    _In_ HWND hWnd,
-    _In_ PPH_SERVICE_ITEM Service
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiContinueService(
-    _In_ HWND hWnd,
-    _In_ PPH_SERVICE_ITEM Service
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiPauseService(
-    _In_ HWND hWnd,
-    _In_ PPH_SERVICE_ITEM Service
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiStopService(
-    _In_ HWND hWnd,
-    _In_ PPH_SERVICE_ITEM Service
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiDeleteService(
-    _In_ HWND hWnd,
-    _In_ PPH_SERVICE_ITEM Service
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiCloseConnections(
-    _In_ HWND hWnd,
-    _In_ PPH_NETWORK_ITEM *Connections,
-    _In_ ULONG NumberOfConnections
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiTerminateThreads(
-    _In_ HWND hWnd,
-    _In_ PPH_THREAD_ITEM *Threads,
-    _In_ ULONG NumberOfThreads
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiForceTerminateThreads(
-    _In_ HWND hWnd,
-    _In_ HANDLE ProcessId,
-    _In_ PPH_THREAD_ITEM *Threads,
-    _In_ ULONG NumberOfThreads
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSuspendThreads(
-    _In_ HWND hWnd,
-    _In_ PPH_THREAD_ITEM *Threads,
-    _In_ ULONG NumberOfThreads
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiResumeThreads(
-    _In_ HWND hWnd,
-    _In_ PPH_THREAD_ITEM *Threads,
-    _In_ ULONG NumberOfThreads
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetPriorityThread(
-    _In_ HWND hWnd,
-    _In_ PPH_THREAD_ITEM Thread,
-    _In_ ULONG ThreadPriorityWin32
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetIoPriorityThread(
-    _In_ HWND hWnd,
-    _In_ PPH_THREAD_ITEM Thread,
-    _In_ ULONG IoPriority
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetPagePriorityThread(
-    _In_ HWND hWnd,
-    _In_ PPH_THREAD_ITEM Thread,
-    _In_ ULONG PagePriority
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiUnloadModule(
-    _In_ HWND hWnd,
-    _In_ HANDLE ProcessId,
-    _In_ PPH_MODULE_ITEM Module
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiFreeMemory(
-    _In_ HWND hWnd,
-    _In_ HANDLE ProcessId,
-    _In_ PPH_MEMORY_ITEM MemoryItem,
-    _In_ BOOLEAN Free
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiCloseHandles(
-    _In_ HWND hWnd,
-    _In_ HANDLE ProcessId,
-    _In_ PPH_HANDLE_ITEM *Handles,
-    _In_ ULONG NumberOfHandles,
-    _In_ BOOLEAN Warn
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhUiSetAttributesHandle(
-    _In_ HWND hWnd,
-    _In_ HANDLE ProcessId,
-    _In_ PPH_HANDLE_ITEM Handle,
-    _In_ ULONG Attributes
-    );
-// end_phapppub
 
 // itemtips
 
@@ -1670,7 +1297,8 @@ VOID PhShowHandleStatisticsDialog(
 
 VOID PhShowInformationDialog(
     _In_ HWND ParentWindowHandle,
-    _In_ PWSTR String
+    _In_ PWSTR String,
+    _Reserved_ ULONG Flags
     );
 
 // jobprp
@@ -1736,6 +1364,13 @@ VOID PhShowMemoryResultsDialog(
 VOID PhShowMemoryStringDialog(
     _In_ HWND ParentWindowHandle,
     _In_ PPH_PROCESS_ITEM ProcessItem
+    );
+
+// mtgndlg
+
+VOID PhShowProcessMitigationPolicyDialog(
+    _In_ HWND ParentWindowHandle,
+    _In_ struct _PH_PROCESS_MITIGATION_POLICY_ALL_INFORMATION *Information
     );
 
 // netstk
@@ -1905,13 +1540,6 @@ PhCreateServiceListControl(
 VOID PhShowServiceProperties(
     _In_ HWND ParentWindowHandle,
     _In_ PPH_SERVICE_ITEM ServiceItem
-    );
-
-// termator
-
-VOID PhShowProcessTerminatorDialog(
-    _In_ HWND ParentWindowHandle,
-    _In_ PPH_PROCESS_ITEM ProcessItem
     );
 
 // thrdstk

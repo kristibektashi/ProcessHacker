@@ -21,116 +21,6 @@
  */
 
 #include "exttools.h"
-#include "resource.h"
-
-VOID NTAPI LoadCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI UnloadCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ShowOptionsCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI MenuItemCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI TreeNewMessageCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI MainWindowShowingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessPropertiesInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI HandlePropertiesInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ThreadMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ModuleMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessTreeNewInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI NetworkTreeNewInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI SystemInformationInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI MiniInformationInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessesUpdatedCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI NetworkItemsUpdatedCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessItemCreateCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    );
-
-VOID NTAPI ProcessItemDeleteCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    );
-
-VOID NTAPI NetworkItemCreateCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    );
-
-VOID NTAPI NetworkItemDeleteCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    );
 
 PPH_PLUGIN PluginInstance;
 LIST_ENTRY EtProcessBlockListHead;
@@ -157,6 +47,408 @@ PH_CALLBACK_REGISTRATION NetworkItemsUpdatedCallbackRegistration;
 
 static HANDLE ModuleProcessId;
 
+VOID NTAPI LoadCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    EtEtwStatisticsInitialization();
+    EtGpuMonitorInitialization();
+
+    EtRegisterNotifyIcons();
+}
+
+VOID NTAPI UnloadCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    EtSaveSettingsDiskTreeList();
+    EtEtwStatisticsUninitialization();
+}
+
+VOID NTAPI ShowOptionsCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    EtShowOptionsDialog((HWND)Parameter);
+}
+
+VOID NTAPI MenuItemCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_PLUGIN_MENU_ITEM menuItem = Parameter;
+
+    switch (menuItem->Id)
+    {
+    case ID_PROCESS_UNLOADEDMODULES:
+        {
+            EtShowUnloadedDllsDialog(PhMainWndHandle, menuItem->Context);
+        }
+        break;
+    case ID_PROCESS_WSWATCH:
+        {
+            EtShowWsWatchDialog(PhMainWndHandle, menuItem->Context);
+        }
+        break;
+    case ID_THREAD_CANCELIO:
+        {
+            EtUiCancelIoThread(menuItem->OwnerWindow, menuItem->Context);
+        }
+        break;
+    case ID_MODULE_SERVICES:
+        {
+            EtShowModuleServicesDialog(
+                menuItem->OwnerWindow,
+                ModuleProcessId,
+                ((PPH_MODULE_ITEM)menuItem->Context)->Name->Buffer
+                );
+        }
+        break;
+    }
+}
+
+VOID NTAPI TreeNewMessageCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_PLUGIN_TREENEW_MESSAGE message = Parameter;
+
+    if (message->TreeNewHandle == ProcessTreeNewHandle)
+        EtProcessTreeNewMessage(Parameter);
+    else if (message->TreeNewHandle == NetworkTreeNewHandle)
+        EtNetworkTreeNewMessage(Parameter);
+}
+
+VOID NTAPI MainWindowShowingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    EtInitializeDiskTab();
+}
+
+VOID NTAPI ProcessPropertiesInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    EtProcessGpuPropertiesInitializing(Parameter);
+    EtProcessEtwPropertiesInitializing(Parameter);
+}
+
+VOID NTAPI HandlePropertiesInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    EtHandlePropertiesInitializing(Parameter);
+}
+
+VOID NTAPI ProcessMenuInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
+    PPH_PROCESS_ITEM processItem;
+    ULONG flags;
+    PPH_EMENU_ITEM miscMenu;
+
+    if (menuInfo->u.Process.NumberOfProcesses == 1)
+        processItem = menuInfo->u.Process.Processes[0];
+    else
+        processItem = NULL;
+
+    flags = 0;
+
+    if (!processItem)
+        flags = PH_EMENU_DISABLED;
+
+    miscMenu = PhFindEMenuItem(menuInfo->Menu, 0, L"Miscellaneous", 0);
+
+    if (miscMenu)
+    {
+        PhInsertEMenuItem(miscMenu, PhPluginCreateEMenuItem(PluginInstance, flags, ID_PROCESS_UNLOADEDMODULES, L"Unloaded modules", processItem), -1);
+        PhInsertEMenuItem(miscMenu, PhPluginCreateEMenuItem(PluginInstance, flags, ID_PROCESS_WSWATCH, L"WS watch", processItem), -1);
+    }
+}
+
+VOID NTAPI ThreadMenuInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
+    PPH_THREAD_ITEM threadItem;
+    ULONG insertIndex;
+    PPH_EMENU_ITEM menuItem;
+
+    if (menuInfo->u.Thread.NumberOfThreads == 1)
+        threadItem = menuInfo->u.Thread.Threads[0];
+    else
+        threadItem = NULL;
+
+    if (menuItem = PhFindEMenuItem(menuInfo->Menu, 0, L"Resume", 0))
+        insertIndex = PhIndexOfEMenuItem(menuInfo->Menu, menuItem) + 1;
+    else
+        insertIndex = 0;
+
+    PhInsertEMenuItem(menuInfo->Menu, menuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ID_THREAD_CANCELIO,
+        L"Cancel I/O", threadItem), insertIndex);
+
+    if (!threadItem) menuItem->Flags |= PH_EMENU_DISABLED;
+}
+
+VOID NTAPI ModuleMenuInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
+    PPH_PROCESS_ITEM processItem;
+    BOOLEAN addMenuItem;
+    PPH_MODULE_ITEM moduleItem;
+    ULONG insertIndex;
+    PPH_EMENU_ITEM menuItem;
+
+    addMenuItem = FALSE;
+
+    if (processItem = PhReferenceProcessItem(menuInfo->u.Module.ProcessId))
+    {
+        if (processItem->ServiceList && processItem->ServiceList->Count != 0)
+            addMenuItem = TRUE;
+
+        PhDereferenceObject(processItem);
+    }
+
+    if (!addMenuItem)
+        return;
+
+    if (menuInfo->u.Module.NumberOfModules == 1)
+        moduleItem = menuInfo->u.Module.Modules[0];
+    else
+        moduleItem = NULL;
+
+    if (menuItem = PhFindEMenuItem(menuInfo->Menu, PH_EMENU_FIND_STARTSWITH, L"Inspect", 0))
+        insertIndex = PhIndexOfEMenuItem(menuInfo->Menu, menuItem) + 1;
+    else
+        insertIndex = 0;
+
+    ModuleProcessId = menuInfo->u.Module.ProcessId;
+
+    PhInsertEMenuItem(menuInfo->Menu, menuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ID_MODULE_SERVICES,
+        L"Services", moduleItem), insertIndex);
+
+    if (!moduleItem) menuItem->Flags |= PH_EMENU_DISABLED;
+}
+
+VOID NTAPI ProcessTreeNewInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_PLUGIN_TREENEW_INFORMATION treeNewInfo = Parameter;
+
+    ProcessTreeNewHandle = treeNewInfo->TreeNewHandle;
+    EtProcessTreeNewInitializing(Parameter);
+}
+
+VOID NTAPI NetworkTreeNewInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_PLUGIN_TREENEW_INFORMATION treeNewInfo = Parameter;
+
+    NetworkTreeNewHandle = treeNewInfo->TreeNewHandle;
+    EtNetworkTreeNewInitializing(Parameter);
+}
+
+VOID NTAPI SystemInformationInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    if (EtGpuEnabled)
+        EtGpuSystemInformationInitializing(Parameter);
+    if (EtEtwEnabled)
+        EtEtwSystemInformationInitializing(Parameter);
+}
+
+VOID NTAPI MiniInformationInitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    if (EtGpuEnabled)
+        EtGpuMiniInformationInitializing(Parameter);
+    if (EtEtwEnabled)
+        EtEtwMiniInformationInitializing(Parameter);
+}
+
+VOID NTAPI ProcessesUpdatedCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PLIST_ENTRY listEntry;
+
+    // Note: no lock is needed because we only ever modify the list on this same thread.
+
+    listEntry = EtProcessBlockListHead.Flink;
+
+    while (listEntry != &EtProcessBlockListHead)
+    {
+        PET_PROCESS_BLOCK block;
+
+        block = CONTAINING_RECORD(listEntry, ET_PROCESS_BLOCK, ListEntry);
+
+        PhUpdateDelta(&block->HardFaultsDelta, block->ProcessItem->HardFaultCount);
+
+        // Invalidate all text.
+
+        PhAcquireQueuedLockExclusive(&block->TextCacheLock);
+        memset(block->TextCacheValid, 0, sizeof(block->TextCacheValid));
+        PhReleaseQueuedLockExclusive(&block->TextCacheLock);
+
+        listEntry = listEntry->Flink;
+    }
+}
+
+VOID NTAPI NetworkItemsUpdatedCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    PLIST_ENTRY listEntry;
+
+    // Note: no lock is needed because we only ever modify the list on this same thread.
+
+    listEntry = EtNetworkBlockListHead.Flink;
+
+    while (listEntry != &EtNetworkBlockListHead)
+    {
+        PET_NETWORK_BLOCK block;
+
+        block = CONTAINING_RECORD(listEntry, ET_NETWORK_BLOCK, ListEntry);
+
+        // Invalidate all text.
+
+        PhAcquireQueuedLockExclusive(&block->TextCacheLock);
+        memset(block->TextCacheValid, 0, sizeof(block->TextCacheValid));
+        PhReleaseQueuedLockExclusive(&block->TextCacheLock);
+
+        listEntry = listEntry->Flink;
+    }
+}
+
+PET_PROCESS_BLOCK EtGetProcessBlock(
+    _In_ PPH_PROCESS_ITEM ProcessItem
+    )
+{
+    return PhPluginGetObjectExtension(PluginInstance, ProcessItem, EmProcessItemType);
+}
+
+PET_NETWORK_BLOCK EtGetNetworkBlock(
+    _In_ PPH_NETWORK_ITEM NetworkItem
+    )
+{
+    return PhPluginGetObjectExtension(PluginInstance, NetworkItem, EmNetworkItemType);
+}
+
+VOID EtInitializeProcessBlock(
+    _Out_ PET_PROCESS_BLOCK Block,
+    _In_ PPH_PROCESS_ITEM ProcessItem
+    )
+{
+    memset(Block, 0, sizeof(ET_PROCESS_BLOCK));
+    Block->ProcessItem = ProcessItem;
+    PhInitializeQueuedLock(&Block->TextCacheLock);
+    InsertTailList(&EtProcessBlockListHead, &Block->ListEntry);
+}
+
+VOID EtDeleteProcessBlock(
+    _In_ PET_PROCESS_BLOCK Block
+    )
+{
+    ULONG i;
+
+    EtProcIconNotifyProcessDelete(Block);
+
+    for (i = 1; i <= ETPRTNC_MAXIMUM; i++)
+    {
+        PhClearReference(&Block->TextCache[i]);
+    }
+
+    RemoveEntryList(&Block->ListEntry);
+}
+
+VOID EtInitializeNetworkBlock(
+    _Out_ PET_NETWORK_BLOCK Block,
+    _In_ PPH_NETWORK_ITEM NetworkItem
+    )
+{
+    memset(Block, 0, sizeof(ET_NETWORK_BLOCK));
+    Block->NetworkItem = NetworkItem;
+    PhInitializeQueuedLock(&Block->TextCacheLock);
+    InsertTailList(&EtNetworkBlockListHead, &Block->ListEntry);
+}
+
+VOID EtDeleteNetworkBlock(
+    _In_ PET_NETWORK_BLOCK Block
+    )
+{
+    ULONG i;
+
+    for (i = 1; i <= ETNETNC_MAXIMUM; i++)
+    {
+        PhClearReference(&Block->TextCache[i]);
+    }
+
+    RemoveEntryList(&Block->ListEntry);
+}
+
+VOID NTAPI ProcessItemCreateCallback(
+    _In_ PVOID Object,
+    _In_ PH_EM_OBJECT_TYPE ObjectType,
+    _In_ PVOID Extension
+    )
+{
+    EtInitializeProcessBlock(Extension, Object);
+}
+
+VOID NTAPI ProcessItemDeleteCallback(
+    _In_ PVOID Object,
+    _In_ PH_EM_OBJECT_TYPE ObjectType,
+    _In_ PVOID Extension
+    )
+{
+    EtDeleteProcessBlock(Extension);
+}
+
+VOID NTAPI NetworkItemCreateCallback(
+    _In_ PVOID Object,
+    _In_ PH_EM_OBJECT_TYPE ObjectType,
+    _In_ PVOID Extension
+    )
+{
+    EtInitializeNetworkBlock(Extension, Object);
+}
+
+VOID NTAPI NetworkItemDeleteCallback(
+    _In_ PVOID Object,
+    _In_ PH_EM_OBJECT_TYPE ObjectType,
+    _In_ PVOID Extension
+    )
+{
+    EtDeleteNetworkBlock(Extension);
+}
+
 LOGICAL DllMain(
     _In_ HINSTANCE Instance,
     _In_ ULONG Reason,
@@ -177,7 +469,7 @@ LOGICAL DllMain(
             info->DisplayName = L"Extended Tools";
             info->Author = L"wj32";
             info->Description = L"Extended functionality for Windows Vista and above, including ETW monitoring, GPU monitoring and a Disk tab.";
-            info->Url = L"http://processhacker.sf.net/forums/viewtopic.php?t=1114";
+            info->Url = L"https://wj32.org/processhacker/forums/viewtopic.php?t=1114";
             info->HasOptions = TRUE;
 
             PhRegisterCallback(
@@ -321,406 +613,4 @@ LOGICAL DllMain(
     }
 
     return TRUE;
-}
-
-VOID NTAPI LoadCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    EtEtwStatisticsInitialization();
-    EtGpuMonitorInitialization();
-
-    EtRegisterNotifyIcons();
-}
-
-VOID NTAPI UnloadCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    EtSaveSettingsDiskTreeList();
-    EtEtwStatisticsUninitialization();
-}
-
-VOID NTAPI ShowOptionsCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    EtShowOptionsDialog((HWND)Parameter);
-}
-
-VOID NTAPI MenuItemCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PPH_PLUGIN_MENU_ITEM menuItem = Parameter;
-
-    switch (menuItem->Id)
-    {
-    case ID_PROCESS_UNLOADEDMODULES:
-        {
-            EtShowUnloadedDllsDialog(PhMainWndHandle, menuItem->Context);
-        }
-        break;
-    case ID_PROCESS_WSWATCH:
-        {
-            EtShowWsWatchDialog(PhMainWndHandle, menuItem->Context);
-        }
-        break;
-    case ID_THREAD_CANCELIO:
-        {
-            EtUiCancelIoThread(menuItem->OwnerWindow, menuItem->Context);
-        }
-        break;
-    case ID_MODULE_SERVICES:
-        {
-            EtShowModuleServicesDialog(
-                menuItem->OwnerWindow,
-                ModuleProcessId,
-                ((PPH_MODULE_ITEM)menuItem->Context)->Name->Buffer
-                );
-        }
-        break;
-    }
-}
-
-VOID NTAPI TreeNewMessageCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PPH_PLUGIN_TREENEW_MESSAGE message = Parameter;
-
-    if (message->TreeNewHandle == ProcessTreeNewHandle)
-        EtProcessTreeNewMessage(Parameter);
-    else if (message->TreeNewHandle == NetworkTreeNewHandle)
-        EtNetworkTreeNewMessage(Parameter);
-}
-
-VOID NTAPI MainWindowShowingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    EtInitializeDiskTab();
-}
-
-VOID NTAPI ProcessPropertiesInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    EtProcessGpuPropertiesInitializing(Parameter);
-    EtProcessEtwPropertiesInitializing(Parameter);
-}
-
-VOID NTAPI HandlePropertiesInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    EtHandlePropertiesInitializing(Parameter);
-}
-
-VOID NTAPI ProcessMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
-    PPH_PROCESS_ITEM processItem;
-    ULONG flags;
-    PPH_EMENU_ITEM miscMenu;
-
-    if (menuInfo->u.Process.NumberOfProcesses == 1)
-        processItem = menuInfo->u.Process.Processes[0];
-    else
-        processItem = NULL;
-
-    flags = 0;
-
-    if (!processItem)
-        flags = PH_EMENU_DISABLED;
-
-    miscMenu = PhFindEMenuItem(menuInfo->Menu, 0, L"Miscellaneous", 0);
-
-    if (miscMenu)
-    {
-        PhInsertEMenuItem(miscMenu, PhPluginCreateEMenuItem(PluginInstance, flags, ID_PROCESS_UNLOADEDMODULES, L"Unloaded Modules", processItem), -1);
-        PhInsertEMenuItem(miscMenu, PhPluginCreateEMenuItem(PluginInstance, flags, ID_PROCESS_WSWATCH, L"WS Watch", processItem), -1);
-    }
-}
-
-VOID NTAPI ThreadMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
-    PPH_THREAD_ITEM threadItem;
-    ULONG insertIndex;
-    PPH_EMENU_ITEM menuItem;
-
-    if (menuInfo->u.Thread.NumberOfThreads == 1)
-        threadItem = menuInfo->u.Thread.Threads[0];
-    else
-        threadItem = NULL;
-
-    if (menuItem = PhFindEMenuItem(menuInfo->Menu, 0, L"Resume", 0))
-        insertIndex = PhIndexOfEMenuItem(menuInfo->Menu, menuItem) + 1;
-    else
-        insertIndex = 0;
-
-    PhInsertEMenuItem(menuInfo->Menu, menuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ID_THREAD_CANCELIO,
-        L"Cancel I/O", threadItem), insertIndex);
-
-    if (!threadItem) menuItem->Flags |= PH_EMENU_DISABLED;
-}
-
-VOID NTAPI ModuleMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
-    PPH_PROCESS_ITEM processItem;
-    BOOLEAN addMenuItem;
-    PPH_MODULE_ITEM moduleItem;
-    ULONG insertIndex;
-    PPH_EMENU_ITEM menuItem;
-
-    addMenuItem = FALSE;
-
-    if (processItem = PhReferenceProcessItem(menuInfo->u.Module.ProcessId))
-    {
-        if (processItem->ServiceList && processItem->ServiceList->Count != 0)
-            addMenuItem = TRUE;
-
-        PhDereferenceObject(processItem);
-    }
-
-    if (!addMenuItem)
-        return;
-
-    if (menuInfo->u.Module.NumberOfModules == 1)
-        moduleItem = menuInfo->u.Module.Modules[0];
-    else
-        moduleItem = NULL;
-
-    if (menuItem = PhFindEMenuItem(menuInfo->Menu, PH_EMENU_FIND_STARTSWITH, L"Inspect", 0))
-        insertIndex = PhIndexOfEMenuItem(menuInfo->Menu, menuItem) + 1;
-    else
-        insertIndex = 0;
-
-    ModuleProcessId = menuInfo->u.Module.ProcessId;
-
-    PhInsertEMenuItem(menuInfo->Menu, menuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ID_MODULE_SERVICES,
-        L"Services", moduleItem), insertIndex);
-
-    if (!moduleItem) menuItem->Flags |= PH_EMENU_DISABLED;
-}
-
-VOID NTAPI ProcessTreeNewInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PPH_PLUGIN_TREENEW_INFORMATION treeNewInfo = Parameter;
-
-    ProcessTreeNewHandle = treeNewInfo->TreeNewHandle;
-    EtProcessTreeNewInitializing(Parameter);
-}
-
-VOID NTAPI NetworkTreeNewInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PPH_PLUGIN_TREENEW_INFORMATION treeNewInfo = Parameter;
-
-    NetworkTreeNewHandle = treeNewInfo->TreeNewHandle;
-    EtNetworkTreeNewInitializing(Parameter);
-}
-
-VOID NTAPI SystemInformationInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    if (EtGpuEnabled)
-        EtGpuSystemInformationInitializing(Parameter);
-    if (EtEtwEnabled)
-        EtEtwSystemInformationInitializing(Parameter);
-}
-
-VOID NTAPI MiniInformationInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    if (EtGpuEnabled)
-        EtGpuMiniInformationInitializing(Parameter);
-    if (EtEtwEnabled)
-        EtEtwMiniInformationInitializing(Parameter);
-}
-
-static VOID NTAPI ProcessesUpdatedCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PLIST_ENTRY listEntry;
-
-    // Note: no lock is needed because we only ever modify the list on this same thread.
-
-    listEntry = EtProcessBlockListHead.Flink;
-
-    while (listEntry != &EtProcessBlockListHead)
-    {
-        PET_PROCESS_BLOCK block;
-
-        block = CONTAINING_RECORD(listEntry, ET_PROCESS_BLOCK, ListEntry);
-
-        PhUpdateDelta(&block->HardFaultsDelta, block->ProcessItem->HardFaultCount);
-
-        // Invalidate all text.
-
-        PhAcquireQueuedLockExclusive(&block->TextCacheLock);
-        memset(block->TextCacheValid, 0, sizeof(block->TextCacheValid));
-        PhReleaseQueuedLockExclusive(&block->TextCacheLock);
-
-        listEntry = listEntry->Flink;
-    }
-}
-
-static VOID NTAPI NetworkItemsUpdatedCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    )
-{
-    PLIST_ENTRY listEntry;
-
-    // Note: no lock is needed because we only ever modify the list on this same thread.
-
-    listEntry = EtNetworkBlockListHead.Flink;
-
-    while (listEntry != &EtNetworkBlockListHead)
-    {
-        PET_NETWORK_BLOCK block;
-
-        block = CONTAINING_RECORD(listEntry, ET_NETWORK_BLOCK, ListEntry);
-
-        // Invalidate all text.
-
-        PhAcquireQueuedLockExclusive(&block->TextCacheLock);
-        memset(block->TextCacheValid, 0, sizeof(block->TextCacheValid));
-        PhReleaseQueuedLockExclusive(&block->TextCacheLock);
-
-        listEntry = listEntry->Flink;
-    }
-}
-
-PET_PROCESS_BLOCK EtGetProcessBlock(
-    _In_ PPH_PROCESS_ITEM ProcessItem
-    )
-{
-    return PhPluginGetObjectExtension(PluginInstance, ProcessItem, EmProcessItemType);
-}
-
-PET_NETWORK_BLOCK EtGetNetworkBlock(
-    _In_ PPH_NETWORK_ITEM NetworkItem
-    )
-{
-    return PhPluginGetObjectExtension(PluginInstance, NetworkItem, EmNetworkItemType);
-}
-
-VOID EtInitializeProcessBlock(
-    _Out_ PET_PROCESS_BLOCK Block,
-    _In_ PPH_PROCESS_ITEM ProcessItem
-    )
-{
-    memset(Block, 0, sizeof(ET_PROCESS_BLOCK));
-    Block->ProcessItem = ProcessItem;
-    PhInitializeQueuedLock(&Block->TextCacheLock);
-    InsertTailList(&EtProcessBlockListHead, &Block->ListEntry);
-}
-
-VOID EtDeleteProcessBlock(
-    _In_ PET_PROCESS_BLOCK Block
-    )
-{
-    ULONG i;
-
-    EtProcIconNotifyProcessDelete(Block);
-
-    for (i = 1; i <= ETPRTNC_MAXIMUM; i++)
-    {
-        PhClearReference(&Block->TextCache[i]);
-    }
-
-    RemoveEntryList(&Block->ListEntry);
-}
-
-VOID EtInitializeNetworkBlock(
-    _Out_ PET_NETWORK_BLOCK Block,
-    _In_ PPH_NETWORK_ITEM NetworkItem
-    )
-{
-    memset(Block, 0, sizeof(ET_NETWORK_BLOCK));
-    Block->NetworkItem = NetworkItem;
-    PhInitializeQueuedLock(&Block->TextCacheLock);
-    InsertTailList(&EtNetworkBlockListHead, &Block->ListEntry);
-}
-
-VOID EtDeleteNetworkBlock(
-    _In_ PET_NETWORK_BLOCK Block
-    )
-{
-    ULONG i;
-
-    for (i = 1; i <= ETNETNC_MAXIMUM; i++)
-    {
-        PhClearReference(&Block->TextCache[i]);
-    }
-
-    RemoveEntryList(&Block->ListEntry);
-}
-
-VOID NTAPI ProcessItemCreateCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    )
-{
-    EtInitializeProcessBlock(Extension, Object);
-}
-
-VOID NTAPI ProcessItemDeleteCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    )
-{
-    EtDeleteProcessBlock(Extension);
-}
-
-VOID NTAPI NetworkItemCreateCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    )
-{
-    EtInitializeNetworkBlock(Extension, Object);
-}
-
-VOID NTAPI NetworkItemDeleteCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    )
-{
-    EtDeleteNetworkBlock(Extension);
 }

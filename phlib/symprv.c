@@ -21,8 +21,15 @@
  */
 
 #include <ph.h>
+#include <workqueue.h>
 #include <kphuser.h>
+#include <fastlock.h>
+
+#pragma warning(push)
+#pragma warning(disable: 4091) // Ignore 'no variable declared on typedef'
 #include <dbghelp.h>
+#pragma warning(pop)
+
 #include <symprv.h>
 #include <symprvp.h>
 
@@ -284,7 +291,7 @@ BOOL CALLBACK PhpSymbolCallbackFunction(
                 data->FileName = PhCreateString(callbackData->FileName);
             }
 
-            PhQueueItemGlobalWorkQueue(PhpSymbolCallbackWorker, data);
+            PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), PhpSymbolCallbackWorker, data);
 
             break;
         }
@@ -429,56 +436,28 @@ ULONG64 PhGetModuleFromAddress(
     PH_SYMBOL_MODULE lookupModule;
     PPH_AVL_LINKS links;
     PPH_SYMBOL_MODULE module;
-    LONG result;
     PPH_STRING foundFileName;
     ULONG64 foundBaseAddress;
 
-    module = NULL;
     foundFileName = NULL;
     foundBaseAddress = 0;
+
+    PhAcquireQueuedLockShared(&SymbolProvider->ModulesListLock);
 
     // Do an approximate search on the modules set to locate the module with the largest
     // base address that is still smaller than the given address.
     lookupModule.BaseAddress = Address;
-
-    PhAcquireQueuedLockShared(&SymbolProvider->ModulesListLock);
-
-    links = PhFindElementAvlTree2(&SymbolProvider->ModulesSet, &lookupModule.Links, &result);
+    links = PhUpperDualBoundElementAvlTree(&SymbolProvider->ModulesSet, &lookupModule.Links);
 
     if (links)
     {
-        if (result == 0)
-        {
-            // Exact match.
-        }
-        else if (result < 0)
-        {
-            // The base of the closest module is larger than our address. Assume the
-            // preceding element (which is going to be smaller than our address) is the
-            // one we're looking for.
+        module = CONTAINING_RECORD(links, PH_SYMBOL_MODULE, Links);
 
-            links = PhPredecessorElementAvlTree(links);
-        }
-        else
+        if (Address < module->BaseAddress + module->Size)
         {
-            // The base of the closest module is smaller than our address. Assume this
-            // is the element we're looking for.
+            PhSetReference(&foundFileName, module->FileName);
+            foundBaseAddress = module->BaseAddress;
         }
-
-        if (links)
-        {
-            module = CONTAINING_RECORD(links, PH_SYMBOL_MODULE, Links);
-        }
-    }
-    else
-    {
-        // No modules loaded.
-    }
-
-    if (module && Address < module->BaseAddress + module->Size)
-    {
-        PhSetReference(&foundFileName, module->FileName);
-        foundBaseAddress = module->BaseAddress;
     }
 
     PhReleaseQueuedLockShared(&SymbolProvider->ModulesListLock);
@@ -577,10 +556,8 @@ PPH_STRING PhGetSymbolFromAddress(
 
     PH_LOCK_SYMBOLS();
 
-    // Note that we don't care whether this call
-    // succeeds or not, based on the assumption that
-    // it will not write to the symbolInfo structure
-    // if it fails. We've already zeroed the structure,
+    // Note that we don't care whether this call succeeds or not, based on the assumption that it
+    // will not write to the symbolInfo structure if it fails. We've already zeroed the structure,
     // so we can deal with it.
 
     if (SymFromAddrW_I)
@@ -699,8 +676,8 @@ PPH_STRING PhGetSymbolFromAddress(
 
     modBaseName = PhGetBaseName(modFileName);
 
-    // If we have a module name but not a symbol name,
-    // return the module plus an offset: module+offset.
+    // If we have a module name but not a symbol name, return the module plus an offset:
+    // module+offset.
 
     if (symbolInfo->NameLen == 0)
     {
@@ -716,8 +693,7 @@ PPH_STRING PhGetSymbolFromAddress(
         goto CleanupExit;
     }
 
-    // If we have everything, return the full symbol
-    // name: module!symbol+offset.
+    // If we have everything, return the full symbol name: module!symbol+offset.
 
     symbolName = PhCreateStringEx(symbolInfo->Name, symbolInfo->NameLen * 2);
     resolveLevel = PhsrlFunction;
@@ -1015,7 +991,7 @@ NTSTATUS PhpLookupDynamicFunctionTable(
 
     // Find the function table entry for this address.
 
-    if (!NT_SUCCESS(status = PhReadVirtualMemory(
+    if (!NT_SUCCESS(status = NtReadVirtualMemory(
         ProcessHandle,
         tableListHead,
         &tableListHeadEntry,
@@ -1031,7 +1007,7 @@ NTSTATUS PhpLookupDynamicFunctionTable(
     {
         functionTableAddress = CONTAINING_RECORD(tableListEntry, DYNAMIC_FUNCTION_TABLE, ListEntry);
 
-        if (!NT_SUCCESS(status = PhReadVirtualMemory(
+        if (!NT_SUCCESS(status = NtReadVirtualMemory(
             ProcessHandle,
             functionTableAddress,
             &functionTable,
@@ -1050,7 +1026,7 @@ NTSTATUS PhpLookupDynamicFunctionTable(
                     // just have to read as much as possible.
 
                     memset(OutOfProcessCallbackDllBuffer, 0xff, OutOfProcessCallbackDllBufferSize);
-                    status = PhReadVirtualMemory(
+                    status = NtReadVirtualMemory(
                         ProcessHandle,
                         functionTable.OutOfProcessCallbackDll,
                         OutOfProcessCallbackDllBuffer,
@@ -1238,7 +1214,7 @@ NTSTATUS PhpAccessNormalFunctionTable(
     if (!functions)
         return STATUS_NO_MEMORY;
 
-    status = PhReadVirtualMemory(ProcessHandle, FunctionTable->FunctionTable, functions, bufferSize, NULL);
+    status = NtReadVirtualMemory(ProcessHandle, FunctionTable->FunctionTable, functions, bufferSize, NULL);
 
     if (NT_SUCCESS(status))
     {
@@ -1466,7 +1442,7 @@ BOOLEAN PhWriteMiniDumpProcess(
 
     return MiniDumpWriteDump_I(
         ProcessHandle,
-        (ULONG)ProcessId,
+        HandleToUlong(ProcessId),
         FileHandle,
         DumpType,
         ExceptionParam,
@@ -1476,14 +1452,11 @@ BOOLEAN PhWriteMiniDumpProcess(
 }
 
 /**
- * Converts a STACKFRAME64 structure to a
- * PH_THREAD_STACK_FRAME structure.
+ * Converts a STACKFRAME64 structure to a PH_THREAD_STACK_FRAME structure.
  *
- * \param StackFrame64 A pointer to the STACKFRAME64 structure
- * to convert.
+ * \param StackFrame64 A pointer to the STACKFRAME64 structure to convert.
  * \param Flags Flags to set in the resulting structure.
- * \param ThreadStackFrame A pointer to the resulting
- * PH_THREAD_STACK_FRAME structure.
+ * \param ThreadStackFrame A pointer to the resulting PH_THREAD_STACK_FRAME structure.
  */
 VOID PhpConvertStackFrame(
     _In_ STACKFRAME64 *StackFrame64,
@@ -1511,29 +1484,21 @@ VOID PhpConvertStackFrame(
 /**
  * Walks a thread's stack.
  *
- * \param ThreadHandle A handle to a thread. The handle
- * must have THREAD_QUERY_LIMITED_INFORMATION, THREAD_GET_CONTEXT
- * and THREAD_SUSPEND_RESUME access. The handle can have any
- * access for kernel stack walking.
- * \param ProcessHandle A handle to the thread's parent
- * process. The handle must have PROCESS_QUERY_INFORMATION
- * and PROCESS_VM_READ access. If a symbol provider is
- * being used, pass its process handle and specify the symbol
- * provider in \a SymbolProvider.
+ * \param ThreadHandle A handle to a thread. The handle must have THREAD_QUERY_LIMITED_INFORMATION,
+ * THREAD_GET_CONTEXT and THREAD_SUSPEND_RESUME access. The handle can have any access for kernel
+ * stack walking.
+ * \param ProcessHandle A handle to the thread's parent process. The handle must have
+ * PROCESS_QUERY_INFORMATION and PROCESS_VM_READ access. If a symbol provider is being used, pass
+ * its process handle and specify the symbol provider in \a SymbolProvider.
  * \param ClientId The client ID identifying the thread.
  * \param SymbolProvider The associated symbol provider.
  * \param Flags A combination of flags.
- * \li \c PH_WALK_I386_STACK Walks the x86 stack. On AMD64
- * systems this flag walks the WOW64 stack.
- * \li \c PH_WALK_AMD64_STACK Walks the AMD64 stack. On x86
- * systems this flag is ignored.
- * \li \c PH_WALK_KERNEL_STACK Walks the kernel stack. This
- * flag is ignored if there is no active KProcessHacker
- * connection.
- * \param Callback A callback function which is executed
- * for each stack frame.
- * \param Context A user-defined value to pass to the
- * callback function.
+ * \li \c PH_WALK_I386_STACK Walks the x86 stack. On AMD64 systems this flag walks the WOW64 stack.
+ * \li \c PH_WALK_AMD64_STACK Walks the AMD64 stack. On x86 systems this flag is ignored.
+ * \li \c PH_WALK_KERNEL_STACK Walks the kernel stack. This flag is ignored if there is no active
+ * KProcessHacker connection.
+ * \param Callback A callback function which is executed for each stack frame.
+ * \param Context A user-defined value to pass to the callback function.
  */
 NTSTATUS PhWalkThreadStack(
     _In_ HANDLE ThreadHandle,
@@ -1549,7 +1514,7 @@ NTSTATUS PhWalkThreadStack(
     BOOLEAN suspended = FALSE;
     BOOLEAN processOpened = FALSE;
     BOOLEAN isCurrentThread = FALSE;
-    BOOLEAN isSystemProcess = FALSE;
+    BOOLEAN isSystemThread = FALSE;
     THREAD_BASIC_INFORMATION basicInfo;
 
     // Open a handle to the process if we weren't given one.
@@ -1558,9 +1523,9 @@ NTSTATUS PhWalkThreadStack(
         if (KphIsConnected() || !ClientId)
         {
             if (!NT_SUCCESS(status = PhOpenThreadProcess(
-                &ProcessHandle,
+                ThreadHandle,
                 PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                ThreadHandle
+                &ProcessHandle
                 )))
                 return status;
         }
@@ -1583,7 +1548,7 @@ NTSTATUS PhWalkThreadStack(
         if (ClientId->UniqueThread == NtCurrentTeb()->ClientId.UniqueThread)
             isCurrentThread = TRUE;
         if (ClientId->UniqueProcess == SYSTEM_PROCESS_ID)
-            isSystemProcess = TRUE;
+            isSystemThread = TRUE;
     }
     else
     {
@@ -1596,13 +1561,26 @@ NTSTATUS PhWalkThreadStack(
             if (basicInfo.ClientId.UniqueThread == NtCurrentTeb()->ClientId.UniqueThread)
                 isCurrentThread = TRUE;
             if (basicInfo.ClientId.UniqueProcess == SYSTEM_PROCESS_ID)
-                isSystemProcess = TRUE;
+                isSystemThread = TRUE;
         }
     }
 
-    // Suspend the thread to avoid inaccurate results. Don't suspend if we're walking
-    // the stack of the current thread or this is the System process.
-    if (!isCurrentThread && !isSystemProcess)
+    // Make sure this isn't a kernel-mode thread.
+    if (!isSystemThread)
+    {
+        PVOID startAddress;
+
+        if (NT_SUCCESS(NtQueryInformationThread(ThreadHandle, ThreadQuerySetWin32StartAddress,
+            &startAddress, sizeof(PVOID), NULL)))
+        {
+            if ((ULONG_PTR)startAddress > PhSystemBasicInformation.MaximumUserModeAddress)
+                isSystemThread = TRUE;
+        }
+    }
+
+    // Suspend the thread to avoid inaccurate results. Don't suspend if we're walking the stack of
+    // the current thread or this is a kernel-mode thread.
+    if (!isCurrentThread && !isSystemThread)
     {
         if (NT_SUCCESS(NtSuspendThread(ThreadHandle, NULL)))
             suspended = TRUE;
@@ -1611,7 +1589,7 @@ NTSTATUS PhWalkThreadStack(
     // Kernel stack walk.
     if ((Flags & PH_WALK_KERNEL_STACK) && KphIsConnected())
     {
-        PVOID stack[62 - 1]; // 62 limit for XP and Server 2003.
+        PVOID stack[256 - 2]; // See MAX_STACK_DEPTH
         ULONG capturedFrames;
         ULONG i;
 
@@ -1650,7 +1628,7 @@ NTSTATUS PhWalkThreadStack(
 
         context.ContextFlags = CONTEXT_ALL;
 
-        if (!NT_SUCCESS(status = PhGetThreadContext(
+        if (!NT_SUCCESS(status = NtGetContextThread(
             ThreadHandle,
             &context
             )))
@@ -1706,7 +1684,7 @@ SkipAmd64Stack:
 
         context.ContextFlags = CONTEXT_ALL;
 
-        if (!NT_SUCCESS(status = PhGetThreadContext(
+        if (!NT_SUCCESS(status = NtGetContextThread(
             ThreadHandle,
             &context
             )))

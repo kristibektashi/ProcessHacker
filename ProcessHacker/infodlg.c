@@ -23,6 +23,12 @@
 #include <phapp.h>
 #include <windowsx.h>
 
+typedef struct _INFORMATION_CONTEXT
+{
+    PWSTR String;
+    ULONG Flags;
+} INFORMATION_CONTEXT, *PINFORMATION_CONTEXT;
+
 static RECT MinimumSize = { -1, -1, -1, -1 };
 
 static INT_PTR CALLBACK PhpInformationDlgProc(
@@ -36,12 +42,12 @@ static INT_PTR CALLBACK PhpInformationDlgProc(
     {
     case WM_INITDIALOG:
         {
-            PWSTR string = (PWSTR)lParam;
+            PINFORMATION_CONTEXT context = (PINFORMATION_CONTEXT)lParam;
             PPH_LAYOUT_MANAGER layoutManager;
 
             PhCenterWindow(hwndDlg, GetParent(hwndDlg));
 
-            SetDlgItemText(hwndDlg, IDC_TEXT, string);
+            SetDlgItemText(hwndDlg, IDC_TEXT, context->String);
 
             layoutManager = PhAllocate(sizeof(PH_LAYOUT_MANAGER));
             PhInitializeLayoutManager(layoutManager, hwndDlg);
@@ -68,7 +74,7 @@ static INT_PTR CALLBACK PhpInformationDlgProc(
             }
 
             SetProp(hwndDlg, L"LayoutManager", (HANDLE)layoutManager);
-            SetProp(hwndDlg, L"String", (HANDLE)string);
+            SetProp(hwndDlg, L"String", (HANDLE)context->String);
         }
         break;
     case WM_DESTROY:
@@ -115,7 +121,7 @@ static INT_PTR CALLBACK PhpInformationDlgProc(
                     }
 
                     PhSetClipboardString(hwndDlg, &string);
-                    SetFocus(editControl);
+                    SendMessage(hwndDlg, WM_NEXTDLGCTL, (WPARAM)editControl, TRUE);
                 }
                 break;
             case IDC_SAVE:
@@ -138,8 +144,7 @@ static INT_PTR CALLBACK PhpInformationDlgProc(
                         PPH_STRING fileName;
                         PPH_FILE_STREAM fileStream;
 
-                        fileName = PhGetFileDialogFileName(fileDialog);
-                        PhAutoDereferenceObject(fileName);
+                        fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
 
                         if (NT_SUCCESS(status = PhCreateFileStream(
                             &fileStream,
@@ -188,14 +193,20 @@ static INT_PTR CALLBACK PhpInformationDlgProc(
 
 VOID PhShowInformationDialog(
     _In_ HWND ParentWindowHandle,
-    _In_ PWSTR String
+    _In_ PWSTR String,
+    _Reserved_ ULONG Flags
     )
 {
+    INFORMATION_CONTEXT context;
+
+    context.String = String;
+    context.Flags = Flags;
+
     DialogBoxParam(
         PhInstanceHandle,
         MAKEINTRESOURCE(IDD_INFORMATION),
         ParentWindowHandle,
         PhpInformationDlgProc,
-        (LPARAM)String
+        (LPARAM)&context
         );
 }

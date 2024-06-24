@@ -2,7 +2,7 @@
  * Process Hacker -
  *   program settings
  *
- * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -58,6 +58,7 @@ PPH_LIST PhIgnoredSettings;
 #define PhpAddStringSetting(A, B) ADD_SETTING_WRAPPER(StringSettingType, A, B)
 #define PhpAddIntegerSetting(A, B) ADD_SETTING_WRAPPER(IntegerSettingType, A, B)
 #define PhpAddIntegerPairSetting(A, B) ADD_SETTING_WRAPPER(IntegerPairSettingType, A, B)
+#define PhpAddScalableIntegerPairSetting(A, B) ADD_SETTING_WRAPPER(ScalableIntegerPairSettingType, A, B)
 
 VOID PhSettingsInitialization(
     VOID
@@ -65,7 +66,7 @@ VOID PhSettingsInitialization(
 {
     PhSettingsHashtable = PhCreateHashtable(
         sizeof(PH_SETTING),
-        PhpSettingsHashtableCompareFunction,
+        PhpSettingsHashtableEqualFunction,
         PhpSettingsHashtableHashFunction,
         256
         );
@@ -84,13 +85,14 @@ VOID PhSettingsInitialization(
     PhpAddIntegerSetting(L"EnableKph", L"1");
     PhpAddIntegerSetting(L"EnableNetworkResolve", L"1");
     PhpAddIntegerSetting(L"EnablePlugins", L"1");
-    PhpAddIntegerSetting(L"EnableServiceNonPoll", L"0");
+    PhpAddIntegerSetting(L"EnableServiceNonPoll", L"1");
     PhpAddIntegerSetting(L"EnableStage2", L"1");
     PhpAddIntegerSetting(L"EnableWarnings", L"1");
     PhpAddStringSetting(L"EnvironmentListViewColumns", L"");
+    PhpAddIntegerSetting(L"FindObjRegex", L"0");
     PhpAddStringSetting(L"FindObjListViewColumns", L"");
     PhpAddIntegerPairSetting(L"FindObjWindowPosition", L"350,350");
-    PhpAddIntegerPairSetting(L"FindObjWindowSize", L"550,420");
+    PhpAddScalableIntegerPairSetting(L"FindObjWindowSize", L"@96|550,420");
     PhpAddIntegerSetting(L"FirstRun", L"1");
     PhpAddStringSetting(L"Font", L""); // null
     PhpAddIntegerSetting(L"ForceNoParent", L"0");
@@ -98,7 +100,7 @@ VOID PhSettingsInitialization(
     PhpAddStringSetting(L"HandleTreeListSort", L"0,1"); // 0, AscendingSortOrder
     PhpAddStringSetting(L"HiddenProcessesListViewColumns", L"");
     PhpAddIntegerPairSetting(L"HiddenProcessesWindowPosition", L"400,400");
-    PhpAddIntegerPairSetting(L"HiddenProcessesWindowSize", L"520,400");
+    PhpAddScalableIntegerPairSetting(L"HiddenProcessesWindowSize", L"@96|520,400");
     PhpAddIntegerSetting(L"HideDriverServices", L"0");
     PhpAddIntegerSetting(L"HideOnClose", L"0");
     PhpAddIntegerSetting(L"HideOnMinimize", L"0");
@@ -115,30 +117,31 @@ VOID PhSettingsInitialization(
     PhpAddIntegerSetting(L"LogEntries", L"200"); // 512
     PhpAddStringSetting(L"LogListViewColumns", L"");
     PhpAddIntegerPairSetting(L"LogWindowPosition", L"300,300");
-    PhpAddIntegerPairSetting(L"LogWindowSize", L"450,500");
+    PhpAddScalableIntegerPairSetting(L"LogWindowSize", L"@96|450,500");
     PhpAddIntegerSetting(L"MainWindowAlwaysOnTop", L"0");
     PhpAddIntegerSetting(L"MainWindowOpacity", L"0"); // means 100%
     PhpAddIntegerPairSetting(L"MainWindowPosition", L"100,100");
-    PhpAddIntegerPairSetting(L"MainWindowSize", L"800,600");
+    PhpAddScalableIntegerPairSetting(L"MainWindowSize", L"@96|800,600");
     PhpAddIntegerSetting(L"MainWindowState", L"1");
     PhpAddIntegerSetting(L"MaxSizeUnit", L"6");
     PhpAddIntegerSetting(L"MemEditBytesPerRow", L"10"); // 16
     PhpAddStringSetting(L"MemEditGotoChoices", L"");
     PhpAddIntegerPairSetting(L"MemEditPosition", L"450,450");
-    PhpAddIntegerPairSetting(L"MemEditSize", L"600,500");
+    PhpAddScalableIntegerPairSetting(L"MemEditSize", L"@96|600,500");
     PhpAddStringSetting(L"MemFilterChoices", L"");
     PhpAddStringSetting(L"MemResultsListViewColumns", L"");
     PhpAddIntegerPairSetting(L"MemResultsPosition", L"300,300");
-    PhpAddIntegerPairSetting(L"MemResultsSize", L"500,520");
+    PhpAddScalableIntegerPairSetting(L"MemResultsSize", L"@96|500,520");
     PhpAddStringSetting(L"MemoryTreeListColumns", L"");
     PhpAddStringSetting(L"MemoryTreeListSort", L"0,0"); // 0, NoSortOrder
     PhpAddIntegerPairSetting(L"MemoryListsWindowPosition", L"400,400");
     PhpAddStringSetting(L"MemoryReadWriteAddressChoices", L"");
+    PhpAddIntegerSetting(L"MiniInfoWindowEnabled", L"1");
     PhpAddIntegerSetting(L"MiniInfoWindowOpacity", L"0"); // means 100%
     PhpAddIntegerSetting(L"MiniInfoWindowPinned", L"0");
     PhpAddIntegerPairSetting(L"MiniInfoWindowPosition", L"200,200");
     PhpAddIntegerSetting(L"MiniInfoWindowRefreshAutomatically", L"1");
-    PhpAddIntegerPairSetting(L"MiniInfoWindowSize", L"10,10");
+    PhpAddScalableIntegerPairSetting(L"MiniInfoWindowSize", L"@96|10,200");
     PhpAddStringSetting(L"ModuleTreeListColumns", L"");
     PhpAddStringSetting(L"ModuleTreeListSort", L"0,0"); // 0, NoSortOrder
     PhpAddStringSetting(L"NetworkTreeListColumns", L"");
@@ -150,7 +153,7 @@ VOID PhSettingsInitialization(
     PhpAddStringSetting(L"ProcessTreeListSort", L"0,0"); // 0, NoSortOrder
     PhpAddStringSetting(L"ProcPropPage", L"General");
     PhpAddIntegerPairSetting(L"ProcPropPosition", L"200,200");
-    PhpAddIntegerPairSetting(L"ProcPropSize", L"460,580");
+    PhpAddScalableIntegerPairSetting(L"ProcPropSize", L"@96|460,580");
     PhpAddStringSetting(L"ProgramInspectExecutables", L"peview.exe \"%s\"");
     PhpAddIntegerSetting(L"PropagateCpuUsage", L"0");
     PhpAddStringSetting(L"RunAsProgram", L"");
@@ -170,12 +173,13 @@ VOID PhSettingsInitialization(
     PhpAddIntegerSetting(L"SysInfoWindowOneGraphPerCpu", L"0");
     PhpAddIntegerPairSetting(L"SysInfoWindowPosition", L"200,200");
     PhpAddStringSetting(L"SysInfoWindowSection", L"");
-    PhpAddIntegerPairSetting(L"SysInfoWindowSize", L"620,590");
+    PhpAddScalableIntegerPairSetting(L"SysInfoWindowSize", L"@96|620,590");
+    PhpAddIntegerSetting(L"SysInfoWindowState", L"1");
     PhpAddIntegerSetting(L"ThinRows", L"0");
     PhpAddStringSetting(L"ThreadTreeListColumns", L"");
     PhpAddStringSetting(L"ThreadTreeListSort", L"1,2"); // 1, DescendingSortOrder
     PhpAddStringSetting(L"ThreadStackListViewColumns", L"");
-    PhpAddIntegerPairSetting(L"ThreadStackWindowSize", L"420,380");
+    PhpAddScalableIntegerPairSetting(L"ThreadStackWindowSize", L"@96|420,380");
     PhpAddIntegerSetting(L"UpdateInterval", L"3e8"); // 1000ms
 
     // Colors are specified with R in the lowest byte, then G, then B.
@@ -188,12 +192,10 @@ VOID PhSettingsInitialization(
     PhpAddIntegerSetting(L"ColorSystemProcesses", L"ffccaa");
     PhpAddIntegerSetting(L"UseColorServiceProcesses", L"1");
     PhpAddIntegerSetting(L"ColorServiceProcesses", L"ffffcc");
-    PhpAddIntegerSetting(L"UseColorJobProcesses", L"1");
+    PhpAddIntegerSetting(L"UseColorJobProcesses", L"0");
     PhpAddIntegerSetting(L"ColorJobProcesses", L"3f85cd"); // Peru
-    PhpAddIntegerSetting(L"UseColorWow64Processes", L"1");
+    PhpAddIntegerSetting(L"UseColorWow64Processes", L"0");
     PhpAddIntegerSetting(L"ColorWow64Processes", L"8f8fbc"); // Rosy Brown
-    PhpAddIntegerSetting(L"UseColorPosixProcesses", L"1");
-    PhpAddIntegerSetting(L"ColorPosixProcesses", L"8b3d48"); // Dark Slate Blue
     PhpAddIntegerSetting(L"UseColorDebuggedProcesses", L"1");
     PhpAddIntegerSetting(L"ColorDebuggedProcesses", L"ffbbcc");
     PhpAddIntegerSetting(L"UseColorElevatedProcesses", L"1");
@@ -253,8 +255,6 @@ VOID PhUpdateCachedSettings(
     UPDATE_INTEGER_CS(ColorJobProcesses);
     UPDATE_INTEGER_CS(UseColorWow64Processes);
     UPDATE_INTEGER_CS(ColorWow64Processes);
-    UPDATE_INTEGER_CS(UseColorPosixProcesses);
-    UPDATE_INTEGER_CS(ColorPosixProcesses);
     UPDATE_INTEGER_CS(UseColorDebuggedProcesses);
     UPDATE_INTEGER_CS(ColorDebuggedProcesses);
     UPDATE_INTEGER_CS(UseColorElevatedProcesses);
@@ -285,7 +285,7 @@ VOID PhUpdateCachedSettings(
     UPDATE_INTEGER_CS(ColorPhysical);
 }
 
-BOOLEAN NTAPI PhpSettingsHashtableCompareFunction(
+BOOLEAN NTAPI PhpSettingsHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -323,6 +323,29 @@ static VOID PhpAddSetting(
     PhAddEntryHashtable(PhSettingsHashtable, &setting);
 }
 
+static ULONG PhpGetCurrentScale(
+    VOID
+    )
+{
+    static PH_INITONCE initOnce;
+    static ULONG dpi = 96;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        HDC hdc;
+
+        if (hdc = GetDC(NULL))
+        {
+            dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+            ReleaseDC(NULL, hdc);
+        }
+
+        PhEndInitOnce(&initOnce);
+    }
+
+    return dpi;
+}
+
 static PPH_STRING PhpSettingToString(
     _In_ PH_SETTING_TYPE Type,
     _In_ PPH_SETTING Setting
@@ -347,7 +370,16 @@ static PPH_STRING PhpSettingToString(
         {
             PPH_INTEGER_PAIR integerPair = &Setting->u.IntegerPair;
 
-            return PhFormatString(L"%u,%u", integerPair->X, integerPair->Y);
+            return PhFormatString(L"%d,%d", integerPair->X, integerPair->Y);
+        }
+    case ScalableIntegerPairSettingType:
+        {
+            PPH_SCALABLE_INTEGER_PAIR scalableIntegerPair = Setting->u.Pointer;
+
+            if (!scalableIntegerPair)
+                return PhReferenceEmptyString();
+
+            return PhFormatString(L"@%u|%d,%d", scalableIntegerPair->Scale, scalableIntegerPair->X, scalableIntegerPair->Y);
         }
     }
 
@@ -411,6 +443,49 @@ static BOOLEAN PhpSettingFromString(
                 return FALSE;
             }
         }
+    case ScalableIntegerPairSettingType:
+        {
+            ULONG64 scale;
+            LONG64 x;
+            LONG64 y;
+            PH_STRINGREF stringRef;
+            PH_STRINGREF firstPart;
+            PH_STRINGREF secondPart;
+            PPH_SCALABLE_INTEGER_PAIR scalableIntegerPair;
+
+            stringRef = *StringRef;
+
+            if (stringRef.Length != 0 && stringRef.Buffer[0] == '@')
+            {
+                PhSkipStringRef(&stringRef, sizeof(WCHAR));
+
+                if (!PhSplitStringRefAtChar(&stringRef, '|', &firstPart, &stringRef))
+                    return FALSE;
+                if (!PhStringToInteger64(&firstPart, 10, &scale))
+                    return FALSE;
+            }
+            else
+            {
+                scale = PhpGetCurrentScale();
+            }
+
+            if (!PhSplitStringRefAtChar(&stringRef, ',', &firstPart, &secondPart))
+                return FALSE;
+
+            if (PhStringToInteger64(&firstPart, 10, &x) && PhStringToInteger64(&secondPart, 10, &y))
+            {
+                scalableIntegerPair = PhAllocate(sizeof(PH_SCALABLE_INTEGER_PAIR));
+                scalableIntegerPair->X = (LONG)x;
+                scalableIntegerPair->Y = (LONG)y;
+                scalableIntegerPair->Scale = (ULONG)scale;
+                Setting->u.Pointer = scalableIntegerPair;
+                return TRUE;
+            }
+            else
+            {
+                return FALSE;
+            }
+        }
     }
 
     return FALSE;
@@ -424,8 +499,11 @@ static VOID PhpFreeSettingValue(
     switch (Type)
     {
     case StringSettingType:
-        if (Setting->u.Pointer)
-            PhDereferenceObject(Setting->u.Pointer);
+        PhClearReference(&Setting->u.Pointer);
+        break;
+    case ScalableIntegerPairSettingType:
+        PhFree(Setting->u.Pointer);
+        Setting->u.Pointer = NULL;
         break;
     }
 }
@@ -504,6 +582,52 @@ _May_raise_ PH_INTEGER_PAIR PhGetIntegerPairSetting(
 
     if (!setting)
         PhRaiseStatus(STATUS_NOT_FOUND);
+
+    return value;
+}
+
+_May_raise_ PH_SCALABLE_INTEGER_PAIR PhGetScalableIntegerPairSetting(
+    _In_ PWSTR Name,
+    _In_ BOOLEAN ScaleToCurrent
+    )
+{
+    PPH_SETTING setting;
+    PH_STRINGREF name;
+    PH_SCALABLE_INTEGER_PAIR value;
+
+    PhInitializeStringRef(&name, Name);
+
+    PhAcquireQueuedLockShared(&PhSettingsLock);
+
+    setting = PhpLookupSetting(&name);
+
+    if (setting && setting->Type == ScalableIntegerPairSettingType)
+    {
+        value = *(PPH_SCALABLE_INTEGER_PAIR)setting->u.Pointer;
+    }
+    else
+    {
+        setting = NULL;
+    }
+
+    PhReleaseQueuedLockShared(&PhSettingsLock);
+
+    if (!setting)
+        PhRaiseStatus(STATUS_NOT_FOUND);
+
+    if (ScaleToCurrent)
+    {
+        ULONG currentScale;
+
+        currentScale = PhpGetCurrentScale();
+
+        if (value.Scale != currentScale && value.Scale != 0)
+        {
+            value.X = PhMultiplyDivideSigned(value.X, currentScale, value.Scale);
+            value.Y = PhMultiplyDivideSigned(value.Y, currentScale, value.Scale);
+            value.Scale = currentScale;
+        }
+    }
 
     return value;
 }
@@ -599,6 +723,44 @@ _May_raise_ VOID PhSetIntegerPairSetting(
 
     if (!setting)
         PhRaiseStatus(STATUS_NOT_FOUND);
+}
+
+_May_raise_ VOID PhSetScalableIntegerPairSetting(
+    _In_ PWSTR Name,
+    _In_ PH_SCALABLE_INTEGER_PAIR Value
+    )
+{
+    PPH_SETTING setting;
+    PH_STRINGREF name;
+
+    PhInitializeStringRef(&name, Name);
+
+    PhAcquireQueuedLockExclusive(&PhSettingsLock);
+
+    setting = PhpLookupSetting(&name);
+
+    if (setting && setting->Type == ScalableIntegerPairSettingType)
+    {
+        PhpFreeSettingValue(ScalableIntegerPairSettingType, setting);
+        setting->u.Pointer = PhAllocateCopy(&Value, sizeof(PH_SCALABLE_INTEGER_PAIR));
+    }
+
+    PhReleaseQueuedLockExclusive(&PhSettingsLock);
+
+    if (!setting)
+        PhRaiseStatus(STATUS_NOT_FOUND);
+}
+
+_May_raise_ VOID PhSetScalableIntegerPairSetting2(
+    _In_ PWSTR Name,
+    _In_ PH_INTEGER_PAIR Value
+    )
+{
+    PH_SCALABLE_INTEGER_PAIR scalableIntegerPair;
+
+    scalableIntegerPair.Pair = Value;
+    scalableIntegerPair.Scale = PhpGetCurrentScale();
+    PhSetScalableIntegerPairSetting(Name, scalableIntegerPair);
 }
 
 _May_raise_ VOID PhSetStringSetting(
@@ -792,7 +954,7 @@ NTSTATUS PhLoadSettings(
         if (
             currentNode->type == MXML_ELEMENT &&
             currentNode->value.element.num_attrs >= 1 &&
-            stricmp(currentNode->value.element.attrs[0].name, "name") == 0
+            _stricmp(currentNode->value.element.attrs[0].name, "name") == 0
             )
         {
             settingName = PhConvertUtf8ToUtf16(currentNode->value.element.attrs[0].value);

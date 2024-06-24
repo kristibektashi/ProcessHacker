@@ -5,6 +5,7 @@
 #define PHNT_MODE PHNT_MODE_KERNEL
 #include <phnt.h>
 #include <ntfill.h>
+#include <bcrypt.h>
 #include <kphapi.h>
 
 // Debugging
@@ -15,10 +16,30 @@
 #define dprintf
 #endif
 
+typedef struct _KPH_CLIENT
+{
+    struct
+    {
+        ULONG VerificationPerformed : 1;
+        ULONG VerificationSucceeded : 1;
+        ULONG KeysGenerated : 1;
+        ULONG SpareBits : 29;
+    };
+    FAST_MUTEX StateMutex;
+    NTSTATUS VerificationStatus;
+    PVOID VerifiedProcess; // EPROCESS (for equality checking only - do not access contents)
+    HANDLE VerifiedProcessId;
+    PVOID VerifiedRangeBase;
+    SIZE_T VerifiedRangeSize;
+    // Level 1 and 2 secret keys
+    FAST_MUTEX KeyBackoffMutex;
+    KPH_KEY L1Key;
+    KPH_KEY L2Key;
+} KPH_CLIENT, *PKPH_CLIENT;
+
 typedef struct _KPH_PARAMETERS
 {
     KPH_SECURITY_LEVEL SecurityLevel;
-    LOGICAL DisableDynamicProcedureScan;
 } KPH_PARAMETERS, *PKPH_PARAMETERS;
 
 // main
@@ -29,15 +50,6 @@ extern KPH_PARAMETERS KphParameters;
 NTSTATUS KpiGetFeatures(
     __out PULONG Features,
     __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KphEnumerateSystemModules(
-    __out PRTL_PROCESS_MODULES *Modules
-    );
-
-NTSTATUS KphValidateAddressForSystemModules(
-    __in PVOID Address,
-    __in SIZE_T Length
     );
 
 // devctrl
@@ -51,14 +63,6 @@ NTSTATUS KphDispatchDeviceControl(
 
 // dynimp
 
-extern _ExfUnblockPushLock ExfUnblockPushLock_I;
-extern _ObGetObjectType ObGetObjectType_I;
-extern _PsAcquireProcessExitSynchronization PsAcquireProcessExitSynchronization_I;
-extern _PsIsProtectedProcess PsIsProtectedProcess_I;
-extern _PsReleaseProcessExitSynchronization PsReleaseProcessExitSynchronization_I;
-extern _PsResumeProcess PsResumeProcess_I;
-extern _PsSuspendProcess PsSuspendProcess_I;
-
 VOID KphDynamicImport(
     VOID
     );
@@ -68,10 +72,6 @@ PVOID KphGetSystemRoutineAddress(
     );
 
 // object
-
-POBJECT_TYPE KphGetObjectType(
-    __in PVOID Object
-    );
 
 PHANDLE_TABLE KphReferenceProcessHandleTable(
     __in PEPROCESS Process
@@ -127,28 +127,6 @@ NTSTATUS KpiSetInformationObject(
     __in KPROCESSOR_MODE AccessMode
     );
 
-NTSTATUS KphDuplicateObject(
-    __in PEPROCESS SourceProcess,
-    __in_opt PEPROCESS TargetProcess,
-    __in HANDLE SourceHandle,
-    __out_opt PHANDLE TargetHandle,
-    __in ACCESS_MASK DesiredAccess,
-    __in ULONG HandleAttributes,
-    __in ULONG Options,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KpiDuplicateObject(
-    __in HANDLE SourceProcessHandle,
-    __in HANDLE SourceHandle,
-    __in_opt HANDLE TargetProcessHandle,
-    __out_opt PHANDLE TargetHandle,
-    __in ACCESS_MASK DesiredAccess,
-    __in ULONG HandleAttributes,
-    __in ULONG Options,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
 NTSTATUS KphOpenNamedObject(
     __out PHANDLE ObjectHandle,
     __in ACCESS_MASK DesiredAccess,
@@ -163,6 +141,8 @@ NTSTATUS KpiOpenProcess(
     __out PHANDLE ProcessHandle,
     __in ACCESS_MASK DesiredAccess,
     __in PCLIENT_ID ClientId,
+    __in_opt KPH_KEY Key,
+    __in PKPH_CLIENT Client,
     __in KPROCESSOR_MODE AccessMode
     );
 
@@ -170,6 +150,8 @@ NTSTATUS KpiOpenProcessToken(
     __in HANDLE ProcessHandle,
     __in ACCESS_MASK DesiredAccess,
     __out PHANDLE TokenHandle,
+    __in_opt KPH_KEY Key,
+    __in PKPH_CLIENT Client,
     __in KPROCESSOR_MODE AccessMode
     );
 
@@ -180,24 +162,11 @@ NTSTATUS KpiOpenProcessJob(
     __in KPROCESSOR_MODE AccessMode
     );
 
-NTSTATUS KpiSuspendProcess(
-    __in HANDLE ProcessHandle,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KpiResumeProcess(
-    __in HANDLE ProcessHandle,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KphTerminateProcessInternal(
-    __in PEPROCESS Process,
-    __in NTSTATUS ExitStatus
-    );
-
 NTSTATUS KpiTerminateProcess(
     __in HANDLE ProcessHandle,
     __in NTSTATUS ExitStatus,
+    __in_opt KPH_KEY Key,
+    __in PKPH_CLIENT Client,
     __in KPROCESSOR_MODE AccessMode
     );
 
@@ -218,18 +187,11 @@ NTSTATUS KpiSetInformationProcess(
     __in KPROCESSOR_MODE AccessMode
     );
 
-BOOLEAN KphAcquireProcessRundownProtection(
-    __in PEPROCESS Process
-    );
-
-VOID KphReleaseProcessRundownProtection(
-    __in PEPROCESS Process
-    );
-
 // qrydrv
 
 NTSTATUS KpiOpenDriver(
     __out PHANDLE DriverHandle,
+    __in ACCESS_MASK DesiredAccess,
     __in POBJECT_ATTRIBUTES ObjectAttributes,
     __in KPROCESSOR_MODE AccessMode
     );
@@ -249,6 +211,8 @@ NTSTATUS KpiOpenThread(
     __out PHANDLE ThreadHandle,
     __in ACCESS_MASK DesiredAccess,
     __in PCLIENT_ID ClientId,
+    __in_opt KPH_KEY Key,
+    __in PKPH_CLIENT Client,
     __in KPROCESSOR_MODE AccessMode
     );
 
@@ -256,35 +220,6 @@ NTSTATUS KpiOpenThreadProcess(
     __in HANDLE ThreadHandle,
     __in ACCESS_MASK DesiredAccess,
     __out PHANDLE ProcessHandle,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KphTerminateThreadByPointerInternal(
-    __in PETHREAD Thread,
-    __in NTSTATUS ExitStatus
-    );
-
-NTSTATUS KpiTerminateThread(
-    __in HANDLE ThreadHandle,
-    __in NTSTATUS ExitStatus,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KpiTerminateThreadUnsafe(
-    __in HANDLE ThreadHandle,
-    __in NTSTATUS ExitStatus,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KpiGetContextThread(
-    __in HANDLE ThreadHandle,
-    __inout PCONTEXT ThreadContext,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KpiSetContextThread(
-    __in HANDLE ThreadHandle,
-    __in PCONTEXT ThreadContext,
     __in KPROCESSOR_MODE AccessMode
     );
 
@@ -333,6 +268,77 @@ NTSTATUS KpiSetInformationThread(
     __in KPROCESSOR_MODE AccessMode
     );
 
+// util
+
+VOID KphFreeCapturedUnicodeString(
+    __in PUNICODE_STRING CapturedUnicodeString
+    );
+
+NTSTATUS KphCaptureUnicodeString(
+    __in PUNICODE_STRING UnicodeString,
+    __out PUNICODE_STRING CapturedUnicodeString
+    );
+
+NTSTATUS KphEnumerateSystemModules(
+    __out PRTL_PROCESS_MODULES *Modules
+    );
+
+NTSTATUS KphValidateAddressForSystemModules(
+    __in PVOID Address,
+    __in SIZE_T Length
+    );
+
+NTSTATUS KphGetProcessMappedFileName(
+    __in HANDLE ProcessHandle,
+    __in PVOID BaseAddress,
+    __out PUNICODE_STRING *FileName
+    );
+
+// verify
+
+NTSTATUS KphHashFile(
+    __in PUNICODE_STRING FileName,
+    __out PVOID *Hash,
+    __out PULONG HashSize
+    );
+
+NTSTATUS KphVerifyFile(
+    __in PUNICODE_STRING FileName,
+    __in_bcount(SignatureSize) PUCHAR Signature,
+    __in ULONG SignatureSize
+    );
+
+VOID KphVerifyClient(
+    __inout PKPH_CLIENT Client,
+    __in PVOID CodeAddress,
+    __in_bcount(SignatureSize) PUCHAR Signature,
+    __in ULONG SignatureSize
+    );
+
+NTSTATUS KpiVerifyClient(
+    __in PVOID CodeAddress,
+    __in_bcount(SignatureSize) PUCHAR Signature,
+    __in ULONG SignatureSize,
+    __in PKPH_CLIENT Client
+    );
+
+VOID KphGenerateKeysClient(
+    __inout PKPH_CLIENT Client
+    );
+
+NTSTATUS KphRetrieveKeyViaApc(
+    __inout PKPH_CLIENT Client,
+    __in KPH_KEY_LEVEL KeyLevel,
+    __inout PIRP Irp
+    );
+
+NTSTATUS KphValidateKey(
+    __in KPH_KEY_LEVEL RequiredKeyLevel,
+    __in_opt KPH_KEY Key,
+    __in PKPH_CLIENT Client,
+    __in KPROCESSOR_MODE AccessMode
+    );
+
 // vm
 
 NTSTATUS KphCopyVirtualMemory(
@@ -345,100 +351,15 @@ NTSTATUS KphCopyVirtualMemory(
     __out PSIZE_T ReturnLength
     );
 
-NTSTATUS KpiReadVirtualMemory(
-    __in HANDLE ProcessHandle,
-    __in PVOID BaseAddress,
-    __out_bcount(BufferSize) PVOID Buffer,
-    __in SIZE_T BufferSize,
-    __out_opt PSIZE_T NumberOfBytesRead,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
-NTSTATUS KpiWriteVirtualMemory(
-    __in HANDLE ProcessHandle,
-    __in_opt PVOID BaseAddress,
-    __in_bcount(BufferSize) PVOID Buffer,
-    __in SIZE_T BufferSize,
-    __out_opt PSIZE_T NumberOfBytesWritten,
-    __in KPROCESSOR_MODE AccessMode
-    );
-
 NTSTATUS KpiReadVirtualMemoryUnsafe(
     __in_opt HANDLE ProcessHandle,
     __in PVOID BaseAddress,
     __out_bcount(BufferSize) PVOID Buffer,
     __in SIZE_T BufferSize,
     __out_opt PSIZE_T NumberOfBytesRead,
+    __in_opt KPH_KEY Key,
+    __in PKPH_CLIENT Client,
     __in KPROCESSOR_MODE AccessMode
     );
-
-// Inline support functions
-
-FORCEINLINE VOID KphFreeCapturedUnicodeString(
-    __in PUNICODE_STRING CapturedUnicodeString
-    )
-{
-    if (CapturedUnicodeString->Buffer)
-        ExFreePoolWithTag(CapturedUnicodeString->Buffer, 'UhpK');
-}
-
-FORCEINLINE NTSTATUS KphCaptureUnicodeString(
-    __in PUNICODE_STRING UnicodeString,
-    __out PUNICODE_STRING CapturedUnicodeString
-    )
-{
-    UNICODE_STRING unicodeString;
-    PWSTR userBuffer;
-
-    __try
-    {
-        ProbeForRead(UnicodeString, sizeof(UNICODE_STRING), sizeof(ULONG));
-        unicodeString.Length = UnicodeString->Length;
-        unicodeString.MaximumLength = unicodeString.Length;
-        unicodeString.Buffer = NULL;
-
-        userBuffer = UnicodeString->Buffer;
-        ProbeForRead(userBuffer, unicodeString.Length, sizeof(WCHAR));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return GetExceptionCode();
-    }
-
-    if (unicodeString.Length & 1)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    if (unicodeString.Length != 0)
-    {
-        unicodeString.Buffer = ExAllocatePoolWithTag(
-            PagedPool,
-            unicodeString.Length,
-            'UhpK'
-            );
-
-        if (!unicodeString.Buffer)
-            return STATUS_INSUFFICIENT_RESOURCES;
-
-        __try
-        {
-            memcpy(
-                unicodeString.Buffer,
-                userBuffer,
-                unicodeString.Length
-                );
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            KphFreeCapturedUnicodeString(&unicodeString);
-            return GetExceptionCode();
-        }
-    }
-
-    *CapturedUnicodeString = unicodeString;
-
-    return STATUS_SUCCESS;
-}
 
 #endif

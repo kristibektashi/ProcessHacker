@@ -21,11 +21,7 @@
  */
 
 #include "exttools.h"
-#include "resource.h"
-#include <windowsx.h>
-#include <math.h>
 
-#define UPDATE_MSG (WM_APP + 1)
 #define GRAPH_PADDING 5
 #define CHECKBOX_PADDING 3
 
@@ -124,7 +120,6 @@ INT_PTR CALLBACK EtpGpuNodesDlgProc(
             ULONG numberOfColumns;
 
             WindowHandle = hwndDlg;
-            PhCenterWindow(hwndDlg, GetParent(hwndDlg));
 
             PhInitializeLayoutManager(&LayoutManager, hwndDlg);
             PhAddLayoutItem(&LayoutManager, GetDlgItem(hwndDlg, IDOK), NULL, PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
@@ -182,7 +177,7 @@ INT_PTR CALLBACK EtpGpuNodesDlgProc(
 
             MinimumSize.left = 0;
             MinimumSize.top = 0;
-            MinimumSize.right = 45;
+            MinimumSize.right = 55;
             MinimumSize.bottom = 60;
             MapDialogRect(hwndDlg, &MinimumSize);
             MinimumSize.right += (MinimumSize.right + GRAPH_PADDING) * numberOfColumns;
@@ -203,6 +198,9 @@ INT_PTR CALLBACK EtpGpuNodesDlgProc(
                 MinimumSize.right = labelRect.right;
 
             SetWindowPos(hwndDlg, NULL, 0, 0, MinimumSize.right, MinimumSize.bottom, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+            
+            // Note: This dialog must be centered after all other graphs and controls have been added.
+            PhCenterWindow(hwndDlg, GetParent(hwndDlg));
 
             EtpLoadNodeBitMap();
         }
@@ -332,7 +330,7 @@ INT_PTR CALLBACK EtpGpuNodesDlgProc(
                     PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)header;
                     PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-                    drawInfo->Flags = PH_GRAPH_USE_GRID;
+                    drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y;
                     SysInfoParameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorCpuKernel"), 0);
 
                     for (i = 0; i < EtGpuTotalNodeCount; i++)
@@ -395,7 +393,7 @@ INT_PTR CALLBACK EtpGpuNodesDlgProc(
                                         i,
                                         adapterDescription->Buffer,
                                         gpu * 100,
-                                        ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                                         ));
                                     PhDereferenceObject(adapterDescription);
                                 }

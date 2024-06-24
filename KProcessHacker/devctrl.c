@@ -1,7 +1,7 @@
 /*
  * KProcessHacker
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -28,6 +28,8 @@ NTSTATUS KphDispatchDeviceControl(
 {
     NTSTATUS status;
     PIO_STACK_LOCATION stackLocation;
+    PFILE_OBJECT fileObject;
+    PKPH_CLIENT client;
     PVOID originalInput;
     ULONG inputLength;
     ULONG ioControlCode;
@@ -48,23 +50,41 @@ NTSTATUS KphDispatchDeviceControl(
     } while (0)
 
     stackLocation = IoGetCurrentIrpStackLocation(Irp);
+    fileObject = stackLocation->FileObject;
+    client = fileObject->FsContext;
+
     originalInput = stackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
     inputLength = stackLocation->Parameters.DeviceIoControl.InputBufferLength;
     ioControlCode = stackLocation->Parameters.DeviceIoControl.IoControlCode;
     accessMode = Irp->RequestorMode;
 
-    // Make sure we actually have input if the input length
-    // is non-zero.
+    // Make sure we have a client object.
+    if (!client)
+    {
+        status = STATUS_INTERNAL_ERROR;
+        goto ControlEnd;
+    }
+
+    // Enforce signature requirement if necessary.
+    if ((ioControlCode != KPH_GETFEATURES && ioControlCode != KPH_VERIFYCLIENT) &&
+        (KphParameters.SecurityLevel == KphSecuritySignatureCheck ||
+            KphParameters.SecurityLevel == KphSecuritySignatureAndPrivilegeCheck) &&
+        !client->VerificationSucceeded)
+    {
+        status = STATUS_ACCESS_DENIED;
+        goto ControlEnd;
+    }
+
+    // Make sure we actually have input if the input length is non-zero.
     if (inputLength != 0 && !originalInput)
     {
         status = STATUS_INVALID_BUFFER_SIZE;
         goto ControlEnd;
     }
 
-    // Make sure the caller isn't giving us a huge buffer.
-    // If they are, it can't be correct because we have a
-    // compile-time check that makes sure our buffer can
-    // store the arguments for all the calls.
+    // Make sure the caller isn't giving us a huge buffer. If they are, it can't be correct because
+    // we have a compile-time check that makes sure our buffer can store the arguments for all the
+    // calls.
     if (inputLength > sizeof(capturedInput))
     {
         status = STATUS_INVALID_BUFFER_SIZE;
@@ -109,6 +129,55 @@ NTSTATUS KphDispatchDeviceControl(
                 );
         }
         break;
+    case KPH_VERIFYCLIENT:
+        {
+            struct
+            {
+                PVOID CodeAddress;
+                PVOID Signature;
+                ULONG SignatureSize;
+            } *input = capturedInputPointer;
+
+            VERIFY_INPUT_LENGTH;
+            
+            if (accessMode == UserMode)
+            {
+                status = KpiVerifyClient(
+                    input->CodeAddress,
+                    input->Signature,
+                    input->SignatureSize,
+                    client
+                    );
+            }
+            else
+            {
+                status = STATUS_UNSUCCESSFUL;
+            }
+        }
+        break;
+    case KPH_RETRIEVEKEY:
+        {
+            struct
+            {
+                KPH_KEY_LEVEL KeyLevel;
+            } *input = capturedInputPointer;
+
+            VERIFY_INPUT_LENGTH;
+
+            if (accessMode == UserMode)
+            {
+                status = KphRetrieveKeyViaApc(
+                    client,
+                    input->KeyLevel,
+                    Irp
+                    );
+            }
+            else
+            {
+                status = STATUS_UNSUCCESSFUL;
+            }
+        }
+        break;
     case KPH_OPENPROCESS:
         {
             struct
@@ -116,6 +185,7 @@ NTSTATUS KphDispatchDeviceControl(
                 PHANDLE ProcessHandle;
                 ACCESS_MASK DesiredAccess;
                 PCLIENT_ID ClientId;
+                KPH_KEY Key;
             } *input = capturedInputPointer;
 
             VERIFY_INPUT_LENGTH;
@@ -124,6 +194,8 @@ NTSTATUS KphDispatchDeviceControl(
                 input->ProcessHandle,
                 input->DesiredAccess,
                 input->ClientId,
+                input->Key,
+                client,
                 accessMode
                 );
         }
@@ -135,6 +207,7 @@ NTSTATUS KphDispatchDeviceControl(
                 HANDLE ProcessHandle;
                 ACCESS_MASK DesiredAccess;
                 PHANDLE TokenHandle;
+                KPH_KEY Key;
             } *input = capturedInputPointer;
 
             VERIFY_INPUT_LENGTH;
@@ -143,6 +216,8 @@ NTSTATUS KphDispatchDeviceControl(
                 input->ProcessHandle,
                 input->DesiredAccess,
                 input->TokenHandle,
+                input->Key,
+                client,
                 accessMode
                 );
         }
@@ -166,42 +241,13 @@ NTSTATUS KphDispatchDeviceControl(
                 );
         }
         break;
-    case KPH_SUSPENDPROCESS:
-        {
-            struct
-            {
-                HANDLE ProcessHandle;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiSuspendProcess(
-                input->ProcessHandle,
-                accessMode
-                );
-        }
-        break;
-    case KPH_RESUMEPROCESS:
-        {
-            struct
-            {
-                HANDLE ProcessHandle;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiResumeProcess(
-                input->ProcessHandle,
-                accessMode
-                );
-        }
-        break;
     case KPH_TERMINATEPROCESS:
         {
             struct
             {
                 HANDLE ProcessHandle;
                 NTSTATUS ExitStatus;
+                KPH_KEY Key;
             } *input = capturedInputPointer;
 
             VERIFY_INPUT_LENGTH;
@@ -209,52 +255,8 @@ NTSTATUS KphDispatchDeviceControl(
             status = KpiTerminateProcess(
                 input->ProcessHandle,
                 input->ExitStatus,
-                accessMode
-                );
-        }
-        break;
-    case KPH_READVIRTUALMEMORY:
-        {
-            struct
-            {
-                HANDLE ProcessHandle;
-                PVOID BaseAddress;
-                PVOID Buffer;
-                SIZE_T BufferSize;
-                PSIZE_T NumberOfBytesRead;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiReadVirtualMemory(
-                input->ProcessHandle,
-                input->BaseAddress,
-                input->Buffer,
-                input->BufferSize,
-                input->NumberOfBytesRead,
-                accessMode
-                );
-        }
-        break;
-    case KPH_WRITEVIRTUALMEMORY:
-        {
-            struct
-            {
-                HANDLE ProcessHandle;
-                PVOID BaseAddress;
-                PVOID Buffer;
-                SIZE_T BufferSize;
-                PSIZE_T NumberOfBytesRead;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiWriteVirtualMemory(
-                input->ProcessHandle,
-                input->BaseAddress,
-                input->Buffer,
-                input->BufferSize,
-                input->NumberOfBytesRead,
+                input->Key,
+                client,
                 accessMode
                 );
         }
@@ -268,6 +270,7 @@ NTSTATUS KphDispatchDeviceControl(
                 PVOID Buffer;
                 SIZE_T BufferSize;
                 PSIZE_T NumberOfBytesRead;
+                KPH_KEY Key;
             } *input = capturedInputPointer;
 
             VERIFY_INPUT_LENGTH;
@@ -278,6 +281,8 @@ NTSTATUS KphDispatchDeviceControl(
                 input->Buffer,
                 input->BufferSize,
                 input->NumberOfBytesRead,
+                input->Key,
+                client,
                 accessMode
                 );
         }
@@ -333,6 +338,7 @@ NTSTATUS KphDispatchDeviceControl(
                 PHANDLE ThreadHandle;
                 ACCESS_MASK DesiredAccess;
                 PCLIENT_ID ClientId;
+                KPH_KEY Key;
             } *input = capturedInputPointer;
 
             VERIFY_INPUT_LENGTH;
@@ -341,6 +347,8 @@ NTSTATUS KphDispatchDeviceControl(
                 input->ThreadHandle,
                 input->DesiredAccess,
                 input->ClientId,
+                input->Key,
+                client,
                 accessMode
                 );
         }
@@ -360,74 +368,6 @@ NTSTATUS KphDispatchDeviceControl(
                 input->ThreadHandle,
                 input->DesiredAccess,
                 input->ProcessHandle,
-                accessMode
-                );
-        }
-        break;
-    case KPH_TERMINATETHREAD:
-        {
-            struct
-            {
-                HANDLE ThreadHandle;
-                NTSTATUS ExitStatus;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiTerminateThread(
-                input->ThreadHandle,
-                input->ExitStatus,
-                accessMode
-                );
-        }
-        break;
-    case KPH_TERMINATETHREADUNSAFE:
-        {
-            struct
-            {
-                HANDLE ThreadHandle;
-                NTSTATUS ExitStatus;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiTerminateThreadUnsafe(
-                input->ThreadHandle,
-                input->ExitStatus,
-                accessMode
-                );
-        }
-        break;
-    case KPH_GETCONTEXTTHREAD:
-        {
-            struct
-            {
-                HANDLE ThreadHandle;
-                PCONTEXT ThreadContext;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiGetContextThread(
-                input->ThreadHandle,
-                input->ThreadContext,
-                accessMode
-                );
-        }
-        break;
-    case KPH_SETCONTEXTTHREAD:
-        {
-            struct
-            {
-                HANDLE ThreadHandle;
-                PCONTEXT ThreadContext;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiSetContextThread(
-                input->ThreadHandle,
-                input->ThreadContext,
                 accessMode
                 );
         }
@@ -570,38 +510,12 @@ NTSTATUS KphDispatchDeviceControl(
                 );
         }
         break;
-    case KPH_DUPLICATEOBJECT:
-        {
-            struct
-            {
-                HANDLE SourceProcessHandle;
-                HANDLE SourceHandle;
-                HANDLE TargetProcessHandle;
-                PHANDLE TargetHandle;
-                ACCESS_MASK DesiredAccess;
-                ULONG HandleAttributes;
-                ULONG Options;
-            } *input = capturedInputPointer;
-
-            VERIFY_INPUT_LENGTH;
-
-            status = KpiDuplicateObject(
-                input->SourceProcessHandle,
-                input->SourceHandle,
-                input->TargetProcessHandle,
-                input->TargetHandle,
-                input->DesiredAccess,
-                input->HandleAttributes,
-                input->Options,
-                accessMode
-                );
-        }
-        break;
     case KPH_OPENDRIVER:
         {
             struct
             {
                 PHANDLE DriverHandle;
+                ACCESS_MASK DesiredAccess;
                 POBJECT_ATTRIBUTES ObjectAttributes;
             } *input = capturedInputPointer;
 
@@ -609,6 +523,7 @@ NTSTATUS KphDispatchDeviceControl(
 
             status = KpiOpenDriver(
                 input->DriverHandle,
+                input->DesiredAccess,
                 input->ObjectAttributes,
                 accessMode
                 );

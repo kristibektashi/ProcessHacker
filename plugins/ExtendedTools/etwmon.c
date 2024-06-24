@@ -85,7 +85,7 @@ VOID EtEtwMonitorInitialization(
     VOID
     )
 {
-    if (PhElevated && PhGetIntegerSetting(SETTING_NAME_ENABLE_ETW_MONITOR))
+    if (PhGetOwnTokenAttributes().Elevated && PhGetIntegerSetting(SETTING_NAME_ENABLE_ETW_MONITOR))
     {
         EtStartEtwSession();
 
@@ -385,6 +385,10 @@ NTSTATUS EtpEtwMonitorThreadStart(
     ULONG result;
     EVENT_TRACE_LOGFILE logFile;
     TRACEHANDLE traceHandle;
+
+    // See comment in EtEtwProcessesUpdatedCallback.
+    if (WindowsVersion >= WINDOWS_8)
+        EtUpdateProcessInformation();
 
     memset(&logFile, 0, sizeof(EVENT_TRACE_LOGFILE));
     logFile.LoggerName = EtpActualKernelLoggerName->Buffer;

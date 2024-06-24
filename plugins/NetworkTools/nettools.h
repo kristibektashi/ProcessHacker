@@ -24,14 +24,12 @@
 #ifndef NETTOOLS_H
 #define NETTOOLS_H
 
-#pragma comment(lib, "iphlpapi.lib")
-#pragma comment(lib, "ws2_32.lib")
-
 #define CINTERFACE
 #define COBJMACROS
 #include <windowsx.h>
 #include <phdk.h>
 #include <phappresource.h>
+#include <workqueue.h>
 #include <windowsx.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -61,7 +59,8 @@ typedef enum _PH_NETWORK_ACTION
     NETWORK_ACTION_PING,
     NETWORK_ACTION_TRACEROUTE,
     NETWORK_ACTION_WHOIS,
-    NETWORK_ACTION_FINISH
+    NETWORK_ACTION_FINISH,
+    NETWORK_ACTION_PATHPING
 } PH_NETWORK_ACTION;
 
 // output

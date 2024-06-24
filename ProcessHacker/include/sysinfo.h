@@ -33,6 +33,17 @@ typedef struct _PH_SYSINFO_PARAMETERS
     ULONG MinimumGraphHeight;
     ULONG SectionViewGraphHeight;
     ULONG PanelWidth;
+// end_phapppub
+
+    ULONG PanelPadding;
+    ULONG WindowPadding;
+    ULONG GraphPadding;
+    ULONG SmallGraphWidth;
+    ULONG SmallGraphPadding;
+    ULONG SeparatorWidth;
+    ULONG CpuPadding;
+    ULONG MemoryPadding;
+// begin_phapppub
 } PH_SYSINFO_PARAMETERS, *PPH_SYSINFO_PARAMETERS;
 
 typedef enum _PH_SYSINFO_SECTION_MESSAGE
@@ -135,6 +146,16 @@ PhSiSetColorsGraphDrawInfo(
     _Out_ PPH_GRAPH_DRAW_INFO DrawInfo,
     _In_ COLORREF Color1,
     _In_ COLORREF Color2
+    );
+
+PHAPPAPI
+PPH_STRING
+NTAPI
+PhSiSizeLabelYFunction(
+    _In_ PPH_GRAPH_DRAW_INFO DrawInfo,
+    _In_ ULONG DataIndex,
+    _In_ FLOAT Value,
+    _In_ FLOAT Parameter
     );
 // end_phapppub
 

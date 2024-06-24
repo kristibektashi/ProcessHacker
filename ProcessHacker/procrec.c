@@ -21,6 +21,7 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
 
 typedef struct _PROCESS_RECORD_CONTEXT
 {
@@ -65,7 +66,7 @@ PPH_STRING PhpaGetRelativeTimeString(
 
     time = *Time;
     PhQuerySystemTime(&currentTime);
-    timeRelativeString = PhAutoDereferenceObject(PhFormatTimeSpanRelative(currentTime.QuadPart - time.QuadPart));
+    timeRelativeString = PH_AUTO(PhFormatTimeSpanRelative(currentTime.QuadPart - time.QuadPart));
 
     PhLargeIntegerToLocalSystemTime(&timeFields, &time);
     timeString = PhaFormatDateTime(&timeFields);
@@ -122,7 +123,7 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
             if (!PH_IS_FAKE_PROCESS_ID(context->Record->ProcessId))
             {
                 processNameString = PhaFormatString(L"%s (%u)",
-                    context->Record->ProcessName->Buffer, (ULONG)context->Record->ProcessId);
+                    context->Record->ProcessName->Buffer, HandleToUlong(context->Record->ProcessId));
             }
             else
             {
@@ -151,14 +152,14 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
                     clientId.UniqueThread = NULL;
 
                     SetDlgItemText(hwndDlg, IDC_PARENT,
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetClientIdNameEx(&clientId, parentProcess->ProcessName)))->Buffer);
+                        PH_AUTO_T(PH_STRING, PhGetClientIdNameEx(&clientId, parentProcess->ProcessName))->Buffer);
 
                     PhDereferenceObject(parentProcess);
                 }
                 else
                 {
                     SetDlgItemText(hwndDlg, IDC_PARENT, PhaFormatString(L"Non-existent process (%u)",
-                        (ULONG)context->Record->ParentProcessId)->Buffer);
+                        HandleToUlong(context->Record->ParentProcessId))->Buffer);
                 }
 
                 PhDereferenceObject(processItem);
@@ -166,7 +167,7 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
             else
             {
                 SetDlgItemText(hwndDlg, IDC_PARENT, PhaFormatString(L"Unknown process (%u)",
-                    (ULONG)context->Record->ParentProcessId)->Buffer);
+                    HandleToUlong(context->Record->ParentProcessId))->Buffer);
 
                 EnableWindow(GetDlgItem(hwndDlg, IDC_PROPERTIES), FALSE);
             }
@@ -182,8 +183,8 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
 
             context->FileIcon = PhGetFileShellIcon(PhGetString(context->Record->FileName), L".exe", TRUE);
 
-            SendMessage(GetDlgItem(hwndDlg, IDC_OPENFILENAME), BM_SETIMAGE, IMAGE_BITMAP,
-                (LPARAM)PH_LOAD_SHARED_IMAGE(MAKEINTRESOURCE(IDB_FOLDER), IMAGE_BITMAP));
+            SendMessage(GetDlgItem(hwndDlg, IDC_OPENFILENAME), BM_SETIMAGE, IMAGE_ICON,
+                (LPARAM)PH_LOAD_SHARED_ICON_SMALL(MAKEINTRESOURCE(IDI_FOLDER)));
             SendMessage(GetDlgItem(hwndDlg, IDC_FILEICON), STM_SETICON,
                 (WPARAM)context->FileIcon, 0);
 

@@ -3,6 +3,7 @@
  *   database functions
  *
  * Copyright (C) 2011-2015 wj32
+ * Copyright (C) 2016 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -20,12 +21,9 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phdk.h>
-#include <mxml.h>
-#include <shlobj.h>
-#include "db.h"
+#include "usernotes.h"
 
-BOOLEAN NTAPI ObjectDbCompareFunction(
+BOOLEAN NTAPI ObjectDbEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -44,13 +42,13 @@ VOID InitializeDb(
 {
     ObjectDb = PhCreateHashtable(
         sizeof(PDB_OBJECT),
-        ObjectDbCompareFunction,
+        ObjectDbEqualFunction,
         ObjectDbHashFunction,
         64
         );
 }
 
-BOOLEAN NTAPI ObjectDbCompareFunction(
+BOOLEAN NTAPI ObjectDbEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -126,6 +124,7 @@ PDB_OBJECT CreateDbObject(
     memset(object, 0, sizeof(DB_OBJECT));
     object->Tag = Tag;
     object->Key = *Name;
+    object->BackColor = ULONG_MAX;
 
     realObject = PhAddEntryHashtableEx(ObjectDb, &object, &added);
 
@@ -234,31 +233,34 @@ NTSTATUS LoadDb(
 
     LockDb();
 
-    currentNode = topNode->child;
-
-    while (currentNode)
+    for (currentNode = topNode->child; currentNode; currentNode = currentNode->next)
     {
+        PDB_OBJECT object = NULL;
         PPH_STRING tag = NULL;
         PPH_STRING name = NULL;
         PPH_STRING priorityClass = NULL;
         PPH_STRING ioPriorityPlusOne = NULL;
         PPH_STRING comment = NULL;
+        PPH_STRING backColor = NULL;
+        PPH_STRING collapse = NULL;
 
         if (currentNode->type == MXML_ELEMENT &&
             currentNode->value.element.num_attrs >= 2)
         {
-            ULONG i;
-
-            for (i = 0; i < (ULONG)currentNode->value.element.num_attrs; i++)
+            for (INT i = 0; i < currentNode->value.element.num_attrs; i++)
             {
-                if (stricmp(currentNode->value.element.attrs[i].name, "tag") == 0)
+                if (_stricmp(currentNode->value.element.attrs[i].name, "tag") == 0)
                     PhMoveReference(&tag, PhConvertUtf8ToUtf16(currentNode->value.element.attrs[i].value));
-                else if (stricmp(currentNode->value.element.attrs[i].name, "name") == 0)
+                else if (_stricmp(currentNode->value.element.attrs[i].name, "name") == 0)
                     PhMoveReference(&name, PhConvertUtf8ToUtf16(currentNode->value.element.attrs[i].value));
-                else if (stricmp(currentNode->value.element.attrs[i].name, "priorityclass") == 0)
+                else if (_stricmp(currentNode->value.element.attrs[i].name, "priorityclass") == 0)
                     PhMoveReference(&priorityClass, PhConvertUtf8ToUtf16(currentNode->value.element.attrs[i].value));
-                else if (stricmp(currentNode->value.element.attrs[i].name, "iopriorityplusone") == 0)
+                else if (_stricmp(currentNode->value.element.attrs[i].name, "iopriorityplusone") == 0)
                     PhMoveReference(&ioPriorityPlusOne, PhConvertUtf8ToUtf16(currentNode->value.element.attrs[i].value));
+                else if (_stricmp(currentNode->value.element.attrs[i].name, "backcolor") == 0)
+                    PhMoveReference(&backColor, PhConvertUtf8ToUtf16(currentNode->value.element.attrs[i].value));
+                else if (_stricmp(currentNode->value.element.attrs[i].name, "collapse") == 0)
+                    PhMoveReference(&collapse, PhConvertUtf8ToUtf16(currentNode->value.element.attrs[i].value));
             }
         }
 
@@ -266,7 +268,6 @@ NTSTATUS LoadDb(
 
         if (tag && name && comment)
         {
-            PDB_OBJECT object;
             ULONG64 tagInteger;
             ULONG64 priorityClassInteger = 0;
             ULONG64 ioPriorityPlusOneInteger = 0;
@@ -283,13 +284,32 @@ NTSTATUS LoadDb(
             object->IoPriorityPlusOne = (ULONG)ioPriorityPlusOneInteger;
         }
 
+        // NOTE: These items are handled separately to maintain compatibility with previous versions of the database.
+        if (object && backColor)
+        {
+            ULONG64 backColorInteger = ULONG_MAX;
+
+            PhStringToInteger64(&backColor->sr, 10, &backColorInteger);
+
+            object->BackColor = (COLORREF)backColorInteger;
+        }
+
+        if (object && collapse)
+        {
+            ULONG64 collapseInteger = 0;
+
+            PhStringToInteger64(&collapse->sr, 10, &collapseInteger);
+
+            object->Collapse = !!collapseInteger;
+        }
+
         PhClearReference(&tag);
         PhClearReference(&name);
         PhClearReference(&priorityClass);
         PhClearReference(&ioPriorityPlusOne);
         PhClearReference(&comment);
-
-        currentNode = currentNode->next;
+        PhClearReference(&backColor);
+        PhClearReference(&collapse);
     }
 
     UnlockDb();
@@ -320,81 +340,81 @@ char *MxmlSaveCallback(
     return NULL;
 }
 
+PPH_BYTES StringRefToUtf8(
+    _In_ PPH_STRINGREF String
+    )
+{
+    return PH_AUTO(PhConvertUtf16ToUtf8Ex(String->Buffer, String->Length));
+}
+
 mxml_node_t *CreateObjectElement(
     _Inout_ mxml_node_t *ParentNode,
     _In_ PPH_STRINGREF Tag,
     _In_ PPH_STRINGREF Name,
     _In_ PPH_STRINGREF PriorityClass,
     _In_ PPH_STRINGREF IoPriorityPlusOne,
-    _In_ PPH_STRINGREF Comment
+    _In_ PPH_STRINGREF Comment,
+    _In_ PPH_STRINGREF BackColor,
+    _In_ PPH_STRINGREF Collapse
     )
 {
     mxml_node_t *objectNode;
     mxml_node_t *textNode;
-    PPH_BYTES tagUtf8;
-    PPH_BYTES nameUtf8;
-    PPH_BYTES priorityClassUtf8;
-    PPH_BYTES ioPriorityPlusOneUtf8;
-    PPH_BYTES valueUtf8;
 
     // Create the setting element.
-
     objectNode = mxmlNewElement(ParentNode, "object");
 
-    tagUtf8 = PhConvertUtf16ToUtf8Ex(Tag->Buffer, Tag->Length);
-    mxmlElementSetAttr(objectNode, "tag", tagUtf8->Buffer);
-    PhDereferenceObject(tagUtf8);
-
-    nameUtf8 = PhConvertUtf16ToUtf8Ex(Name->Buffer, Name->Length);
-    mxmlElementSetAttr(objectNode, "name", nameUtf8->Buffer);
-    PhDereferenceObject(nameUtf8);
-
-    priorityClassUtf8 = PhConvertUtf16ToUtf8Ex(PriorityClass->Buffer, PriorityClass->Length);
-    mxmlElementSetAttr(objectNode, "priorityclass", priorityClassUtf8->Buffer);
-    PhDereferenceObject(priorityClassUtf8);
-
-    ioPriorityPlusOneUtf8 = PhConvertUtf16ToUtf8Ex(IoPriorityPlusOne->Buffer, IoPriorityPlusOne->Length);
-    mxmlElementSetAttr(objectNode, "iopriorityplusone", ioPriorityPlusOneUtf8->Buffer);
-    PhDereferenceObject(ioPriorityPlusOneUtf8);
+    // Set the attributes.
+    mxmlElementSetAttr(objectNode, "tag", StringRefToUtf8(Tag)->Buffer);
+    mxmlElementSetAttr(objectNode, "name", StringRefToUtf8(Name)->Buffer);
+    mxmlElementSetAttr(objectNode, "priorityclass", StringRefToUtf8(PriorityClass)->Buffer);
+    mxmlElementSetAttr(objectNode, "iopriorityplusone", StringRefToUtf8(IoPriorityPlusOne)->Buffer);
+    mxmlElementSetAttr(objectNode, "backcolor", StringRefToUtf8(BackColor)->Buffer);
+    mxmlElementSetAttr(objectNode, "collapse", StringRefToUtf8(Collapse)->Buffer);
 
     // Set the value.
-
-    valueUtf8 = PhConvertUtf16ToUtf8Ex(Comment->Buffer, Comment->Length);
-    textNode = mxmlNewOpaque(objectNode, valueUtf8->Buffer);
-    PhDereferenceObject(valueUtf8);
+    textNode = mxmlNewOpaque(objectNode, StringRefToUtf8(Comment)->Buffer);
 
     return objectNode;
+}
+
+PPH_STRING UInt64ToBase10String(
+    _In_ ULONG64 Integer
+    )
+{
+    return PH_AUTO(PhIntegerToString64(Integer, 10, FALSE));
 }
 
 NTSTATUS SaveDb(
     VOID
     )
 {
+    PH_AUTO_POOL autoPool;
     NTSTATUS status;
     HANDLE fileHandle;
     mxml_node_t *topNode;
     ULONG enumerationKey = 0;
     PDB_OBJECT *object;
 
+    PhInitializeAutoPool(&autoPool);
+
     topNode = mxmlNewElement(MXML_NO_PARENT, "objects");
 
     LockDb();
 
-    while (PhEnumHashtable(ObjectDb, (PVOID *)&object, &enumerationKey))
+    while (PhEnumHashtable(ObjectDb, (PVOID*)&object, &enumerationKey))
     {
-        PPH_STRING tagString;
-        PPH_STRING priorityClassString;
-        PPH_STRING ioPriorityPlusOneString;
-
-        tagString = PhIntegerToString64((*object)->Tag, 10, FALSE);
-        priorityClassString = PhIntegerToString64((*object)->PriorityClass, 10, FALSE);
-        ioPriorityPlusOneString = PhIntegerToString64((*object)->IoPriorityPlusOne, 10, FALSE);
-
-        CreateObjectElement(topNode, &tagString->sr, &(*object)->Name->sr, &priorityClassString->sr, &ioPriorityPlusOneString->sr, &(*object)->Comment->sr);
-
-        PhDereferenceObject(tagString);
-        PhDereferenceObject(priorityClassString);
-        PhDereferenceObject(ioPriorityPlusOneString);
+        CreateObjectElement(
+            topNode,
+            &UInt64ToBase10String((*object)->Tag)->sr,
+            &(*object)->Name->sr,
+            &UInt64ToBase10String((*object)->PriorityClass)->sr,
+            &UInt64ToBase10String((*object)->IoPriorityPlusOne)->sr,
+            &(*object)->Comment->sr,
+            &UInt64ToBase10String((*object)->BackColor)->sr,
+            &UInt64ToBase10String((*object)->Collapse)->sr
+            );
+        PhDrainAutoPool(&autoPool);
     }
 
     UnlockDb();
@@ -403,22 +423,15 @@ NTSTATUS SaveDb(
     {
         PPH_STRING fullPath;
         ULONG indexOfFileName;
-        PPH_STRING directoryName;
 
-        fullPath = PhGetFullPath(ObjectDbPath->Buffer, &indexOfFileName);
-
-        if (fullPath)
+        if (fullPath = PH_AUTO(PhGetFullPath(ObjectDbPath->Buffer, &indexOfFileName)))
         {
             if (indexOfFileName != -1)
-            {
-                directoryName = PhSubstring(fullPath, 0, indexOfFileName);
-                SHCreateDirectoryEx(NULL, directoryName->Buffer, NULL);
-                PhDereferenceObject(directoryName);
-            }
-
-            PhDereferenceObject(fullPath);
+                SHCreateDirectoryEx(NULL, PhaSubstring(fullPath, 0, indexOfFileName)->Buffer, NULL);
         }
     }
+
+    PhDeleteAutoPool(&autoPool);
 
     status = PhCreateFileWin32(
         &fileHandle,

@@ -7,11 +7,15 @@ VOID Test_basesup(
     VOID
     );
 
+VOID Test_avltree(
+    VOID
+    );
+
 VOID Test_format(
     VOID
     );
 
-VOID Test_support(
+VOID Test_util(
     VOID
     );
 

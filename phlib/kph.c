@@ -2,7 +2,7 @@
  * Process Hacker -
  *   KProcessHacker API
  *
- * Copyright (C) 2009-2011 wj32
+ * Copyright (C) 2009-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -22,14 +22,11 @@
 
 #include <ph.h>
 #include <kphuser.h>
-
-NTSTATUS KphpDeviceIoControl(
-    _In_ ULONG KphControlCode,
-    _In_ PVOID InBuffer,
-    _In_ ULONG InBufferLength
-    );
+#include <kphuserp.h>
 
 HANDLE PhKphHandle = NULL;
+BOOLEAN PhKphVerified;
+KPH_KEY PhKphL1Key;
 
 NTSTATUS KphConnect(
     _In_opt_ PWSTR DeviceName
@@ -82,6 +79,8 @@ NTSTATUS KphConnect(
             );
 
         PhKphHandle = kphHandle;
+        PhKphVerified = FALSE;
+        PhKphL1Key = 0;
     }
 
     return status;
@@ -181,10 +180,9 @@ NTSTATUS KphConnect2Ex(
             {
                 created = TRUE;
 
-                // Set parameters if the caller supplied them.
-                // Note that we fail the entire function if this fails,
-                // because failing to set parameters like SecurityLevel may
-                // result in security vulnerabilities.
+                // Set parameters if the caller supplied them. Note that we fail the entire function
+                // if this fails, because failing to set parameters like SecurityLevel may result in
+                // security vulnerabilities.
                 if (Parameters)
                 {
                     status = KphSetParameters(DeviceName, Parameters);
@@ -213,11 +211,9 @@ NTSTATUS KphConnect2Ex(
 CreateAndConnectEnd:
     if (created)
     {
-        // "Delete" the service. Since we (may) have a handle to
-        // the device, the SCM will delete the service automatically
-        // when it is stopped (upon reboot). If we don't have a
-        // handle to the device, the service will get deleted immediately,
-        // which is a good thing anyway.
+        // "Delete" the service. Since we (may) have a handle to the device, the SCM will delete the
+        // service automatically when it is stopped (upon reboot). If we don't have a handle to the
+        // device, the service will get deleted immediately, which is a good thing anyway.
         DeleteService(serviceHandle);
         CloseServiceHandle(serviceHandle);
     }
@@ -249,6 +245,8 @@ NTSTATUS KphDisconnect(
 
     status = NtClose(PhKphHandle);
     PhKphHandle = NULL;
+    PhKphVerified = FALSE;
+    PhKphL1Key = 0;
 
     return status;
 }
@@ -258,6 +256,13 @@ BOOLEAN KphIsConnected(
     )
 {
     return PhKphHandle != NULL;
+}
+
+BOOLEAN KphIsVerified(
+    VOID
+    )
+{
+    return PhKphVerified;
 }
 
 NTSTATUS KphSetParameters(
@@ -444,28 +449,6 @@ NTSTATUS KphUninstall(
     return status;
 }
 
-NTSTATUS KphpDeviceIoControl(
-    _In_ ULONG KphControlCode,
-    _In_ PVOID InBuffer,
-    _In_ ULONG InBufferLength
-    )
-{
-    IO_STATUS_BLOCK isb;
-
-    return NtDeviceIoControlFile(
-        PhKphHandle,
-        NULL,
-        NULL,
-        NULL,
-        &isb,
-        KphControlCode,
-        InBuffer,
-        InBufferLength,
-        NULL,
-        0
-        );
-}
-
 NTSTATUS KphGetFeatures(
     _Out_ PULONG Features
     )
@@ -482,24 +465,52 @@ NTSTATUS KphGetFeatures(
         );
 }
 
+NTSTATUS KphVerifyClient(
+    _In_reads_bytes_(SignatureSize) PUCHAR Signature,
+    _In_ ULONG SignatureSize
+    )
+{
+    NTSTATUS status;
+    struct
+    {
+        PVOID CodeAddress;
+        PUCHAR Signature;
+        ULONG SignatureSize;
+    } input = { KphpWithKeyApcRoutine, Signature, SignatureSize };
+
+    status = KphpDeviceIoControl(
+        KPH_VERIFYCLIENT,
+        &input,
+        sizeof(input)
+        );
+
+    if (NT_SUCCESS(status))
+        PhKphVerified = TRUE;
+
+    return status;
+}
+
 NTSTATUS KphOpenProcess(
     _Out_ PHANDLE ProcessHandle,
     _In_ ACCESS_MASK DesiredAccess,
     _In_ PCLIENT_ID ClientId
     )
 {
-    struct
-    {
-        PHANDLE ProcessHandle;
-        ACCESS_MASK DesiredAccess;
-        PCLIENT_ID ClientId;
-    } input = { ProcessHandle, DesiredAccess, ClientId };
+    KPH_OPEN_PROCESS_INPUT input = { ProcessHandle, DesiredAccess, ClientId, 0 };
 
-    return KphpDeviceIoControl(
-        KPH_OPENPROCESS,
-        &input,
-        sizeof(input)
-        );
+    if ((DesiredAccess & KPH_PROCESS_READ_ACCESS) == DesiredAccess)
+    {
+        KphpGetL1Key(&input.Key);
+        return KphpDeviceIoControl(
+            KPH_OPENPROCESS,
+            &input,
+            sizeof(input)
+            );
+    }
+    else
+    {
+        return KphpWithKey(KphKeyLevel2, KphpOpenProcessContinuation, &input);
+    }
 }
 
 NTSTATUS KphOpenProcessToken(
@@ -508,18 +519,21 @@ NTSTATUS KphOpenProcessToken(
     _Out_ PHANDLE TokenHandle
     )
 {
-    struct
-    {
-        HANDLE ProcessHandle;
-        ACCESS_MASK DesiredAccess;
-        PHANDLE TokenHandle;
-    } input = { ProcessHandle, DesiredAccess, TokenHandle };
+    KPH_OPEN_PROCESS_TOKEN_INPUT input = { ProcessHandle, DesiredAccess, TokenHandle, 0 };
 
-    return KphpDeviceIoControl(
-        KPH_OPENPROCESSTOKEN,
-        &input,
-        sizeof(input)
-        );
+    if ((DesiredAccess & KPH_TOKEN_READ_ACCESS) == DesiredAccess)
+    {
+        KphpGetL1Key(&input.Key);
+        return KphpDeviceIoControl(
+            KPH_OPENPROCESSTOKEN,
+            &input,
+            sizeof(input)
+            );
+    }
+    else
+    {
+        return KphpWithKey(KphKeyLevel2, KphpOpenProcessTokenContinuation, &input);
+    }
 }
 
 NTSTATUS KphOpenProcessJob(
@@ -542,112 +556,23 @@ NTSTATUS KphOpenProcessJob(
         );
 }
 
-NTSTATUS KphSuspendProcess(
-    _In_ HANDLE ProcessHandle
-    )
-{
-    struct
-    {
-        HANDLE ProcessHandle;
-    } input = { ProcessHandle };
-
-    return KphpDeviceIoControl(
-        KPH_SUSPENDPROCESS,
-        &input,
-        sizeof(input)
-        );
-}
-
-NTSTATUS KphResumeProcess(
-    _In_ HANDLE ProcessHandle
-    )
-{
-    struct
-    {
-        HANDLE ProcessHandle;
-    } input = { ProcessHandle };
-
-    return KphpDeviceIoControl(
-        KPH_RESUMEPROCESS,
-        &input,
-        sizeof(input)
-        );
-}
-
 NTSTATUS KphTerminateProcess(
     _In_ HANDLE ProcessHandle,
     _In_ NTSTATUS ExitStatus
     )
 {
     NTSTATUS status;
-    struct
-    {
-        HANDLE ProcessHandle;
-        NTSTATUS ExitStatus;
-    } input = { ProcessHandle, ExitStatus };
+    KPH_TERMINATE_PROCESS_INPUT input = { ProcessHandle, ExitStatus, 0 };
 
-    status = KphpDeviceIoControl(
-        KPH_TERMINATEPROCESS,
-        &input,
-        sizeof(input)
-        );
+    status = KphpWithKey(KphKeyLevel2, KphpTerminateProcessContinuation, &input);
 
-    // Check if we're trying to terminate the current process,
-    // because kernel-mode can't do it.
+    // Check if we're trying to terminate the current process, because kernel-mode can't do it.
     if (status == STATUS_CANT_TERMINATE_SELF)
     {
         RtlExitUserProcess(ExitStatus);
     }
 
     return status;
-}
-
-NTSTATUS KphReadVirtualMemory(
-    _In_ HANDLE ProcessHandle,
-    _In_ PVOID BaseAddress,
-    _Out_writes_bytes_(BufferSize) PVOID Buffer,
-    _In_ SIZE_T BufferSize,
-    _Out_opt_ PSIZE_T NumberOfBytesRead
-    )
-{
-    struct
-    {
-        HANDLE ProcessHandle;
-        PVOID BaseAddress;
-        PVOID Buffer;
-        SIZE_T BufferSize;
-        PSIZE_T NumberOfBytesRead;
-    } input = { ProcessHandle, BaseAddress, Buffer, BufferSize, NumberOfBytesRead };
-
-    return KphpDeviceIoControl(
-        KPH_READVIRTUALMEMORY,
-        &input,
-        sizeof(input)
-        );
-}
-
-NTSTATUS KphWriteVirtualMemory(
-    _In_ HANDLE ProcessHandle,
-    _In_opt_ PVOID BaseAddress,
-    _In_reads_bytes_(BufferSize) PVOID Buffer,
-    _In_ SIZE_T BufferSize,
-    _Out_opt_ PSIZE_T NumberOfBytesWritten
-    )
-{
-    struct
-    {
-        HANDLE ProcessHandle;
-        PVOID BaseAddress;
-        PVOID Buffer;
-        SIZE_T BufferSize;
-        PSIZE_T NumberOfBytesWritten;
-    } input = { ProcessHandle, BaseAddress, Buffer, BufferSize, NumberOfBytesWritten };
-
-    return KphpDeviceIoControl(
-        KPH_WRITEVIRTUALMEMORY,
-        &input,
-        sizeof(input)
-        );
 }
 
 NTSTATUS KphReadVirtualMemoryUnsafe(
@@ -658,20 +583,9 @@ NTSTATUS KphReadVirtualMemoryUnsafe(
     _Out_opt_ PSIZE_T NumberOfBytesRead
     )
 {
-    struct
-    {
-        HANDLE ProcessHandle;
-        PVOID BaseAddress;
-        PVOID Buffer;
-        SIZE_T BufferSize;
-        PSIZE_T NumberOfBytesRead;
-    } input = { ProcessHandle, BaseAddress, Buffer, BufferSize, NumberOfBytesRead };
+    KPH_READ_VIRTUAL_MEMORY_UNSAFE_INPUT input = { ProcessHandle, BaseAddress, Buffer, BufferSize, NumberOfBytesRead, 0 };
 
-    return KphpDeviceIoControl(
-        KPH_READVIRTUALMEMORYUNSAFE,
-        &input,
-        sizeof(input)
-        );
+    return KphpWithKey(KphKeyLevel2, KphpReadVirtualMemoryUnsafeContinuation, &input);
 }
 
 NTSTATUS KphQueryInformationProcess(
@@ -726,18 +640,21 @@ NTSTATUS KphOpenThread(
     _In_ PCLIENT_ID ClientId
     )
 {
-    struct
-    {
-        PHANDLE ThreadHandle;
-        ACCESS_MASK DesiredAccess;
-        PCLIENT_ID ClientId;
-    } input = { ThreadHandle, DesiredAccess, ClientId };
+    KPH_OPEN_THREAD_INPUT input = { ThreadHandle, DesiredAccess, ClientId, 0 };
 
-    return KphpDeviceIoControl(
-        KPH_OPENTHREAD,
-        &input,
-        sizeof(input)
-        );
+    if ((DesiredAccess & KPH_THREAD_READ_ACCESS) == DesiredAccess)
+    {
+        KphpGetL1Key(&input.Key);
+        return KphpDeviceIoControl(
+            KPH_OPENTHREAD,
+            &input,
+            sizeof(input)
+            );
+    }
+    else
+    {
+        return KphpWithKey(KphKeyLevel2, KphpOpenThreadContinuation, &input);
+    }
 }
 
 NTSTATUS KphOpenThreadProcess(
@@ -755,86 +672,6 @@ NTSTATUS KphOpenThreadProcess(
 
     return KphpDeviceIoControl(
         KPH_OPENTHREADPROCESS,
-        &input,
-        sizeof(input)
-        );
-}
-
-NTSTATUS KphTerminateThread(
-    _In_ HANDLE ThreadHandle,
-    _In_ NTSTATUS ExitStatus
-    )
-{
-    NTSTATUS status;
-    struct
-    {
-        HANDLE ThreadHandle;
-        NTSTATUS ExitStatus;
-    } input = { ThreadHandle, ExitStatus };
-
-    status = KphpDeviceIoControl(
-        KPH_TERMINATETHREAD,
-        &input,
-        sizeof(input)
-        );
-
-    if (status == STATUS_CANT_TERMINATE_SELF)
-    {
-        RtlExitUserThread(ExitStatus);
-    }
-
-    return status;
-}
-
-NTSTATUS KphTerminateThreadUnsafe(
-    _In_ HANDLE ThreadHandle,
-    _In_ NTSTATUS ExitStatus
-    )
-{
-    struct
-    {
-        HANDLE ThreadHandle;
-        NTSTATUS ExitStatus;
-    } input = { ThreadHandle, ExitStatus };
-
-    return KphpDeviceIoControl(
-        KPH_TERMINATETHREADUNSAFE,
-        &input,
-        sizeof(input)
-        );
-}
-
-NTSTATUS KphGetContextThread(
-    _In_ HANDLE ThreadHandle,
-    _Inout_ PCONTEXT ThreadContext
-    )
-{
-    struct
-    {
-        HANDLE ThreadHandle;
-        PCONTEXT ThreadContext;
-    } input = { ThreadHandle, ThreadContext };
-
-    return KphpDeviceIoControl(
-        KPH_GETCONTEXTTHREAD,
-        &input,
-        sizeof(input)
-        );
-}
-
-NTSTATUS KphSetContextThread(
-    _In_ HANDLE ThreadHandle,
-    _In_ PCONTEXT ThreadContext
-    )
-{
-    struct
-    {
-        HANDLE ThreadHandle;
-        PCONTEXT ThreadContext;
-    } input = { ThreadHandle, ThreadContext };
-
-    return KphpDeviceIoControl(
-        KPH_SETCONTEXTTHREAD,
         &input,
         sizeof(input)
         );
@@ -1026,54 +863,18 @@ NTSTATUS KphSetInformationObject(
         );
 }
 
-NTSTATUS KphDuplicateObject(
-    _In_ HANDLE SourceProcessHandle,
-    _In_ HANDLE SourceHandle,
-    _In_opt_ HANDLE TargetProcessHandle,
-    _Out_opt_ PHANDLE TargetHandle,
-    _In_ ACCESS_MASK DesiredAccess,
-    _In_ ULONG HandleAttributes,
-    _In_ ULONG Options
-    )
-{
-    NTSTATUS status;
-    struct
-    {
-        HANDLE SourceProcessHandle;
-        HANDLE SourceHandle;
-        HANDLE TargetProcessHandle;
-        PHANDLE TargetHandle;
-        ACCESS_MASK DesiredAccess;
-        ULONG HandleAttributes;
-        ULONG Options;
-    } input = { SourceProcessHandle, SourceHandle, TargetProcessHandle, TargetHandle, DesiredAccess, HandleAttributes, Options };
-
-    status = KphpDeviceIoControl(
-        KPH_DUPLICATEOBJECT,
-        &input,
-        sizeof(input)
-        );
-
-    if (status == STATUS_CANT_TERMINATE_SELF)
-    {
-        // We tried to close a handle in the current process.
-        if (Options & DUPLICATE_CLOSE_SOURCE)
-            status = NtClose(SourceHandle);
-    }
-
-    return status;
-}
-
 NTSTATUS KphOpenDriver(
     _Out_ PHANDLE DriverHandle,
+    _In_ ACCESS_MASK DesiredAccess,
     _In_ POBJECT_ATTRIBUTES ObjectAttributes
     )
 {
     struct
     {
         PHANDLE DriverHandle;
+        ACCESS_MASK DesiredAccess;
         POBJECT_ATTRIBUTES ObjectAttributes;
-    } input = { DriverHandle, ObjectAttributes };
+    } input = { DriverHandle, DesiredAccess, ObjectAttributes };
 
     return KphpDeviceIoControl(
         KPH_OPENDRIVER,
@@ -1103,5 +904,199 @@ NTSTATUS KphQueryInformationDriver(
         KPH_QUERYINFORMATIONDRIVER,
         &input,
         sizeof(input)
+        );
+}
+
+NTSTATUS KphpDeviceIoControl(
+    _In_ ULONG KphControlCode,
+    _In_ PVOID InBuffer,
+    _In_ ULONG InBufferLength
+    )
+{
+    IO_STATUS_BLOCK iosb;
+
+    return NtDeviceIoControlFile(
+        PhKphHandle,
+        NULL,
+        NULL,
+        NULL,
+        &iosb,
+        KphControlCode,
+        InBuffer,
+        InBufferLength,
+        NULL,
+        0
+        );
+}
+
+VOID KphpWithKeyApcRoutine(
+    _In_ PVOID ApcContext,
+    _In_ PIO_STATUS_BLOCK IoStatusBlock,
+    _In_ ULONG Reserved
+    )
+{
+    PKPHP_RETRIEVE_KEY_CONTEXT context = CONTAINING_RECORD(IoStatusBlock, KPHP_RETRIEVE_KEY_CONTEXT, Iosb);
+    KPH_KEY key = PtrToUlong(ApcContext);
+
+    if (context->Continuation != KphpGetL1KeyContinuation &&
+        context->Continuation != KphpOpenProcessContinuation &&
+        context->Continuation != KphpOpenProcessTokenContinuation &&
+        context->Continuation != KphpTerminateProcessContinuation &&
+        context->Continuation != KphpReadVirtualMemoryUnsafeContinuation &&
+        context->Continuation != KphpOpenThreadContinuation)
+    {
+        PhRaiseStatus(STATUS_ACCESS_DENIED);
+        context->Status = STATUS_ACCESS_DENIED;
+        return;
+    }
+
+    context->Status = context->Continuation(key, context->Context);
+}
+
+NTSTATUS KphpWithKey(
+    _In_ KPH_KEY_LEVEL KeyLevel,
+    _In_ PKPHP_WITH_KEY_CONTINUATION Continuation,
+    _In_ PVOID Context
+    )
+{
+    NTSTATUS status;
+    struct
+    {
+        KPH_KEY_LEVEL KeyLevel;
+    } input = { KeyLevel };
+    KPHP_RETRIEVE_KEY_CONTEXT context;
+
+    context.Continuation = Continuation;
+    context.Context = Context;
+    context.Status = STATUS_UNSUCCESSFUL;
+
+    status = NtDeviceIoControlFile(
+        PhKphHandle,
+        NULL,
+        KphpWithKeyApcRoutine,
+        NULL,
+        &context.Iosb,
+        KPH_RETRIEVEKEY,
+        &input,
+        sizeof(input),
+        NULL,
+        0
+        );
+
+    NtTestAlert();
+
+    if (!NT_SUCCESS(status))
+        return status;
+
+    return context.Status;
+}
+
+NTSTATUS KphpGetL1KeyContinuation(
+    _In_ KPH_KEY Key,
+    _In_ PVOID Context
+    )
+{
+    PKPHP_GET_L1_KEY_CONTEXT context = Context;
+
+    *context->Key = Key;
+    PhKphL1Key = Key;
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS KphpGetL1Key(
+    _Out_ PKPH_KEY Key
+    )
+{
+    KPHP_GET_L1_KEY_CONTEXT context;
+
+    if (PhKphL1Key)
+    {
+        *Key = PhKphL1Key;
+        return STATUS_SUCCESS;
+    }
+
+    context.Key = Key;
+
+    return KphpWithKey(KphKeyLevel1, KphpGetL1KeyContinuation, &context);
+}
+
+NTSTATUS KphpOpenProcessContinuation(
+    _In_ KPH_KEY Key,
+    _In_ PVOID Context
+    )
+{
+    PKPH_OPEN_PROCESS_INPUT input = Context;
+
+    input->Key = Key;
+
+    return KphpDeviceIoControl(
+        KPH_OPENPROCESS,
+        input,
+        sizeof(*input)
+        );
+}
+
+NTSTATUS KphpOpenProcessTokenContinuation(
+    _In_ KPH_KEY Key,
+    _In_ PVOID Context
+    )
+{
+    PKPH_OPEN_PROCESS_TOKEN_INPUT input = Context;
+
+    input->Key = Key;
+
+    return KphpDeviceIoControl(
+        KPH_OPENPROCESSTOKEN,
+        input,
+        sizeof(*input)
+        );
+}
+
+NTSTATUS KphpTerminateProcessContinuation(
+    _In_ KPH_KEY Key,
+    _In_ PVOID Context
+    )
+{
+    PKPH_TERMINATE_PROCESS_INPUT input = Context;
+
+    input->Key = Key;
+
+    return KphpDeviceIoControl(
+        KPH_TERMINATEPROCESS,
+        input,
+        sizeof(*input)
+        );
+}
+
+NTSTATUS KphpReadVirtualMemoryUnsafeContinuation(
+    _In_ KPH_KEY Key,
+    _In_ PVOID Context
+    )
+{
+    PKPH_READ_VIRTUAL_MEMORY_UNSAFE_INPUT input = Context;
+
+    input->Key = Key;
+
+    return KphpDeviceIoControl(
+        KPH_READVIRTUALMEMORYUNSAFE,
+        input,
+        sizeof(*input)
+        );
+}
+
+NTSTATUS KphpOpenThreadContinuation(
+    _In_ KPH_KEY Key,
+    _In_ PVOID Context
+    )
+{
+    PKPH_OPEN_PROCESS_INPUT input = Context;
+
+    input->Key = Key;
+
+    return KphpDeviceIoControl(
+        KPH_OPENTHREAD,
+        input,
+        sizeof(*input)
         );
 }

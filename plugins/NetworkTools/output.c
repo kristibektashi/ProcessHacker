@@ -25,7 +25,7 @@
 
 static RECT MinimumSize = { -1, -1, -1, -1 };
 
-static INT_PTR CALLBACK NetworkOutputDlgProc(
+INT_PTR CALLBACK NetworkOutputDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -63,6 +63,8 @@ static INT_PTR CALLBACK NetworkOutputDlgProc(
 
             RemoveProp(hwndDlg, L"Context");
             PhFree(context);
+
+            PostQuitMessage(0);
         }
     }
 
@@ -84,7 +86,7 @@ static INT_PTR CALLBACK NetworkOutputDlgProc(
             PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDOK), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_RIGHT);
 
             windowRectangle.Position = PhGetIntegerPairSetting(SETTING_NAME_TRACERT_WINDOW_POSITION);
-            windowRectangle.Size = PhGetIntegerPairSetting(SETTING_NAME_TRACERT_WINDOW_SIZE);
+            windowRectangle.Size = PhGetScalableIntegerPairSetting(SETTING_NAME_TRACERT_WINDOW_SIZE, TRUE).Pair;
 
             if (MinimumSize.left == -1)
             {
@@ -146,16 +148,28 @@ static INT_PTR CALLBACK NetworkOutputDlgProc(
                         NtClose(dialogThread);
                 }
                 break;
+            case NETWORK_ACTION_PATHPING:
+                {
+                    HANDLE dialogThread = INVALID_HANDLE_VALUE;
+
+                    Static_SetText(context->WindowHandle,
+                        PhaFormatString(L"Pathing route to %s...", context->IpAddressString)->Buffer
+                        );
+
+                    if (dialogThread = PhCreateThread(0, NetworkTracertThreadStart, (PVOID)context))
+                        NtClose(dialogThread);
+                }
+                break;
             }
         }
         break;
     case WM_COMMAND:
         {
-            switch (LOWORD(wParam))
+            switch (GET_WM_COMMAND_ID(wParam, lParam))
             {
             case IDCANCEL:
             case IDOK:
-                PostQuitMessage(0);
+                DestroyWindow(hwndDlg);
                 break;
             }
         }
@@ -176,12 +190,15 @@ static INT_PTR CALLBACK NetworkOutputDlgProc(
             if (!PhGetIntegerSetting(L"GraphColorMode"))
                 break;
 
-            // Set a transparent background for the control backcolor.
-            SetBkMode(hDC, TRANSPARENT);
-
             // Check for our edit control and change the color.
             if (hwndChild == context->OutputHandle)
             {
+                // Set a transparent background for the control backcolor.
+                //SetBkMode(hDC, TRANSPARENT);
+
+                // Set the Edit control background.
+                SetBkColor(hDC, RGB(0x0, 0x0, 0x0));
+
                 // Set text color as the Green PH graph text color.
                 SetTextColor(hDC, RGB(124, 252, 0));
 
@@ -336,7 +353,7 @@ static INT_PTR CALLBACK NetworkOutputDlgProc(
     return FALSE;
 }
 
-static NTSTATUS PhNetworkOutputDialogThreadStart(
+NTSTATUS PhNetworkOutputDialogThreadStart(
     _In_ PVOID Parameter
     )
 {
@@ -374,7 +391,6 @@ static NTSTATUS PhNetworkOutputDialogThreadStart(
     }
 
     PhDeleteAutoPool(&autoPool);
-    DestroyWindow(windowHandle);
 
     return STATUS_SUCCESS;
 }

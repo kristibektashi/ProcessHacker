@@ -20,11 +20,12 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Since the main message loop doesn't support property sheets,
-// we need a separate thread to run property sheets on.
+// Since the main message loop doesn't support property sheets, we need a separate thread to run
+// property sheets on.
 
 #include "wndexp.h"
 #include "resource.h"
+#include <workqueue.h>
 #include <symprv.h>
 #include <windowsx.h>
 
@@ -718,7 +719,7 @@ static VOID WepQueueResolveSymbol(
     WepReferenceWindowPropertiesContext(Context);
     resolveContext->Id = Id;
 
-    PhQueueItemGlobalWorkQueue(WepResolveSymbolFunction, resolveContext);
+    PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), WepResolveSymbolFunction, resolveContext);
 }
 
 static PPH_STRING WepFormatRect(
@@ -761,18 +762,12 @@ static VOID WepRefreshWindowGeneralInfo(
     _In_ PWINDOW_PROPERTIES_CONTEXT Context
     )
 {
-    PPH_STRING windowText;
-    PPH_STRING clientIdName;
     WINDOWINFO windowInfo = { sizeof(WINDOWINFO) };
     WINDOWPLACEMENT windowPlacement = { sizeof(WINDOWPLACEMENT) };
     MONITORINFO monitorInfo = { sizeof(MONITORINFO) };
 
-    clientIdName = PhGetClientIdName(&Context->ClientId);
-    SetDlgItemText(hwndDlg, IDC_THREAD, clientIdName->Buffer);
-    PhDereferenceObject(clientIdName);
-
-    windowText = PhAutoDereferenceObject(PhGetWindowText(Context->WindowHandle));
-    SetDlgItemText(hwndDlg, IDC_TEXT, PhGetStringOrEmpty(windowText));
+    SetDlgItemText(hwndDlg, IDC_THREAD, PH_AUTO_T(PH_STRING, PhGetClientIdName(&Context->ClientId))->Buffer);
+    SetDlgItemText(hwndDlg, IDC_TEXT, PhGetStringOrEmpty(PH_AUTO(PhGetWindowText(Context->WindowHandle))));
 
     if (GetWindowInfo(Context->WindowHandle, &windowInfo))
     {
@@ -807,6 +802,7 @@ static VOID WepRefreshWindowGeneralInfo(
     SetDlgItemText(hwndDlg, IDC_MENUHANDLE, PhaFormatString(L"0x%Ix", GetMenu(Context->WindowHandle))->Buffer);
     SetDlgItemText(hwndDlg, IDC_USERDATA, PhaFormatString(L"0x%Ix", GetWindowLongPtr(Context->WindowHandle, GWLP_USERDATA))->Buffer);
     SetDlgItemText(hwndDlg, IDC_UNICODE, IsWindowUnicode(Context->WindowHandle) ? L"Yes" : L"No");
+    SetDlgItemText(hwndDlg, IDC_CTRLID, PhaFormatString(L"%lu", GetDlgCtrlID(Context->WindowHandle))->Buffer);
 
     WepEnsureHookDataValid(Context);
 
@@ -1142,7 +1138,7 @@ static BOOL CALLBACK EnumPropsExCallback(
     if ((ULONG_PTR)lpszString < USHRT_MAX)
     {
         // This is an integer atom.
-        propName = PhaFormatString(L"#%lu", (ULONG)lpszString)->Buffer;
+        propName = PhaFormatString(L"#%lu", (ULONG_PTR)lpszString)->Buffer;
     }
 
     lvItemIndex = PhAddListViewItem((HWND)dwData, MAXINT, propName, NULL);

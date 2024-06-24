@@ -8,17 +8,21 @@ TARGETNAME=kprocesshacker
 TARGETPATH=..\bin
 !ENDIF
 
-INCLUDES=$(DDK_INC_PATH);..\include;..\..\phlib\include
+TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\ksecdd.lib
+
+INCLUDES=$(DDK_INC_PATH);..\include;..\..\phnt\include;..\..\phlib\include
 LIBS=%BUILD%\lib
 
 SOURCES= \
-    ..\main.c \
-    ..\devctrl.c \
-    ..\dyndata.c \
-    ..\dynimp.c \
-    ..\object.c \
-    ..\process.c \
-    ..\qrydrv.c \
-    ..\thread.c \
-    ..\vm.c \
-    ..\resource.rc
+	..\main.c \
+	..\devctrl.c \
+	..\dyndata.c \
+	..\dynimp.c \
+	..\object.c \
+	..\process.c \
+	..\qrydrv.c \
+	..\thread.c \
+	..\util.c \
+	..\verify.c \
+	..\vm.c \
+	..\resource.rc

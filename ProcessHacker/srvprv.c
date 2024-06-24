@@ -21,8 +21,12 @@
  */
 
 #include <phapp.h>
+#include <srvprv.h>
+#include <procprv.h>
 #include <winevt.h>
 #include <extmgri.h>
+#include <svcsup.h>
+#include <lsasup.h>
 
 typedef DWORD (WINAPI *_NotifyServiceStatusChangeW)(
     _In_ SC_HANDLE hService,
@@ -60,7 +64,7 @@ VOID NTAPI PhpServiceItemDeleteProcedure(
     _In_ ULONG Flags
     );
 
-BOOLEAN NTAPI PhpServiceHashtableCompareFunction(
+BOOLEAN NTAPI PhpServiceHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -111,7 +115,7 @@ BOOLEAN PhServiceProviderInitialization(
     PhServiceItemType = PhCreateObjectType(L"ServiceItem", 0, PhpServiceItemDeleteProcedure);
     PhServiceHashtable = PhCreateHashtable(
         sizeof(PPH_SERVICE_ITEM),
-        PhpServiceHashtableCompareFunction,
+        PhpServiceHashtableEqualFunction,
         PhpServiceHashtableHashFunction,
         40
         );
@@ -140,10 +144,10 @@ PPH_SERVICE_ITEM PhCreateServiceItem(
         serviceItem->State = Information->ServiceStatusProcess.dwCurrentState;
         serviceItem->ControlsAccepted = Information->ServiceStatusProcess.dwControlsAccepted;
         serviceItem->Flags = Information->ServiceStatusProcess.dwServiceFlags;
-        serviceItem->ProcessId = (HANDLE)Information->ServiceStatusProcess.dwProcessId;
+        serviceItem->ProcessId = UlongToHandle(Information->ServiceStatusProcess.dwProcessId);
 
         if (serviceItem->ProcessId)
-            PhPrintUInt32(serviceItem->ProcessIdString, (ULONG)serviceItem->ProcessId);
+            PhPrintUInt32(serviceItem->ProcessIdString, HandleToUlong(serviceItem->ProcessId));
     }
 
     PhEmCallObjectOperation(EmServiceItemType, serviceItem, EmObjectCreate);
@@ -164,7 +168,7 @@ VOID PhpServiceItemDeleteProcedure(
     if (serviceItem->DisplayName) PhDereferenceObject(serviceItem->DisplayName);
 }
 
-BOOLEAN PhpServiceHashtableCompareFunction(
+BOOLEAN PhpServiceHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -192,6 +196,7 @@ PPH_SERVICE_ITEM PhpLookupServiceItem(
     PPH_SERVICE_ITEM lookupServiceItemPtr = &lookupServiceItem;
     PPH_SERVICE_ITEM *serviceItem;
 
+    // Construct a temporary service item for the lookup.
     lookupServiceItem.Key = *Name;
 
     serviceItem = (PPH_SERVICE_ITEM *)PhFindEntryHashtable(
@@ -212,7 +217,6 @@ PPH_SERVICE_ITEM PhReferenceServiceItem(
     PPH_SERVICE_ITEM serviceItem;
     PH_STRINGREF key;
 
-    // Construct a temporary service item for the lookup.
     PhInitializeStringRef(&key, Name);
 
     PhAcquireQueuedLockShared(&PhServiceHashtableLock);
@@ -232,6 +236,9 @@ VOID PhMarkNeedsConfigUpdateServiceItem(
     )
 {
     ServiceItem->NeedsConfigUpdate = TRUE;
+
+    if (PhEnableServiceNonPoll)
+        PhpNonPollGate = 1;
 }
 
 VOID PhpRemoveServiceItem(
@@ -654,7 +661,7 @@ VOID PhServiceProviderUpdate(
                     serviceItem->Type != serviceEntry->ServiceStatusProcess.dwServiceType ||
                     serviceItem->State != serviceEntry->ServiceStatusProcess.dwCurrentState ||
                     serviceItem->ControlsAccepted != serviceEntry->ServiceStatusProcess.dwControlsAccepted ||
-                    serviceItem->ProcessId != (HANDLE)serviceEntry->ServiceStatusProcess.dwProcessId ||
+                    serviceItem->ProcessId != UlongToHandle(serviceEntry->ServiceStatusProcess.dwProcessId) ||
                     serviceItem->NeedsConfigUpdate
                     )
                 {
@@ -674,10 +681,10 @@ VOID PhServiceProviderUpdate(
                     serviceItem->Type = serviceEntry->ServiceStatusProcess.dwServiceType;
                     serviceItem->State = serviceEntry->ServiceStatusProcess.dwCurrentState;
                     serviceItem->ControlsAccepted = serviceEntry->ServiceStatusProcess.dwControlsAccepted;
-                    serviceItem->ProcessId = (HANDLE)serviceEntry->ServiceStatusProcess.dwProcessId;
+                    serviceItem->ProcessId = UlongToHandle(serviceEntry->ServiceStatusProcess.dwProcessId);
 
                     if (serviceItem->ProcessId)
-                        PhPrintUInt32(serviceItem->ProcessIdString, (ULONG)serviceItem->ProcessId);
+                        PhPrintUInt32(serviceItem->ProcessIdString, HandleToUlong(serviceItem->ProcessId));
                     else
                         serviceItem->ProcessIdString[0] = 0;
 

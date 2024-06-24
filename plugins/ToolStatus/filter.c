@@ -47,7 +47,7 @@ BOOLEAN WordMatchStringRef(
     return FALSE;
 }
 
-static BOOLEAN WordMatchStringZ(
+BOOLEAN WordMatchStringZ(
     _In_ PWSTR Text
     )
 {
@@ -251,11 +251,6 @@ BOOLEAN ProcessTreeFilterCallback(
     }
 
     if (WordMatchStringZ(L"IsPacked") && processNode->ProcessItem->IsPacked)
-    {
-        return TRUE;
-    }
-
-    if (WordMatchStringZ(L"IsPosix") && processNode->ProcessItem->IsPosix)
     {
         return TRUE;
     }

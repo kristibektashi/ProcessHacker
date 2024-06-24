@@ -21,8 +21,6 @@
  */
 
 #include "exttools.h"
-#include "resource.h"
-#include <windowsx.h>
 #include "gpusys.h"
 
 static PPH_SYSINFO_SECTION GpuSection;
@@ -90,7 +88,7 @@ BOOLEAN EtpGpuSysInfoSectionCallback(
         {
             PPH_GRAPH_DRAW_INFO drawInfo = Parameter1;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y;
             Section->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorCpuKernel"), 0);
             PhGetDrawInfoGraphBuffers(&Section->GraphState.Buffers, drawInfo, EtGpuNodeHistory.Count);
 
@@ -112,7 +110,7 @@ BOOLEAN EtpGpuSysInfoSectionCallback(
                 L"%.2f%%%s\n%s",
                 gpu * 100,
                 PhGetStringOrEmpty(EtpGetMaxNodeString(getTooltipText->Index)),
-                ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                 ));
             getTooltipText->Text = Section->GraphState.TooltipText->sr;
         }
@@ -182,7 +180,7 @@ INT_PTR CALLBACK EtpGpuDialogProc(
             SendMessage(GetDlgItem(hwndDlg, IDC_TITLE), WM_SETFONT, (WPARAM)GpuSection->Parameters->LargeFont, FALSE);
             SendMessage(GetDlgItem(hwndDlg, IDC_GPUNAME), WM_SETFONT, (WPARAM)GpuSection->Parameters->MediumFont, FALSE);
 
-            SetDlgItemText(hwndDlg, IDC_GPUNAME, ((PPH_STRING)PhAutoDereferenceObject(EtpGetGpuNameString()))->Buffer);
+            SetDlgItemText(hwndDlg, IDC_GPUNAME, ((PPH_STRING)PH_AUTO(EtpGetGpuNameString()))->Buffer);
 
             GpuPanel = CreateDialog(PluginInstance->DllBase, MAKEINTRESOURCE(IDD_SYSINFO_GPUPANEL), hwndDlg, EtpGpuPanelDialogProc);
             ShowWindow(GpuPanel, SW_SHOW);
@@ -405,7 +403,7 @@ VOID EtpNotifyGpuGraph(
             PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y;
             GpuSection->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorCpuKernel"), 0);
 
             PhGraphStateGetDrawInfo(
@@ -437,7 +435,7 @@ VOID EtpNotifyGpuGraph(
                         L"%.2f%%%s\n%s",
                         gpu * 100,
                         PhGetStringOrEmpty(EtpGetMaxNodeString(getTooltipText->Index)),
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                         ));
                 }
 
@@ -479,7 +477,7 @@ VOID EtpNotifyDedicatedGraph(
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
             ULONG i;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y;
             GpuSection->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorPrivate"), 0);
 
             PhGraphStateGetDrawInfo(
@@ -525,7 +523,7 @@ VOID EtpNotifyDedicatedGraph(
                     PhMoveReference(&DedicatedGraphState.TooltipText, PhFormatString(
                         L"Dedicated Memory: %s\n%s",
                         PhaFormatSize(UInt32x32To64(usedPages, PAGE_SIZE), -1)->Buffer,
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                         ));
                 }
 
@@ -548,7 +546,7 @@ VOID EtpNotifySharedGraph(
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
             ULONG i;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y;
             GpuSection->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorPhysical"), 0);
 
             PhGraphStateGetDrawInfo(
@@ -594,7 +592,7 @@ VOID EtpNotifySharedGraph(
                     PhMoveReference(&SharedGraphState.TooltipText, PhFormatString(
                         L"Shared Memory: %s\n%s",
                         PhaFormatSize(UInt32x32To64(usedPages, PAGE_SIZE), -1)->Buffer,
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                         ));
                 }
 

@@ -3,7 +3,7 @@
  *   Uploader Window
  *
  * Copyright (C) 2010-2013 wj32
- * Copyright (C) 2012-2015 dmex
+ * Copyright (C) 2012-2016 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -22,46 +22,69 @@
  */
 
 #include "onlnchk.h"
+#include "json-c/json.h"
 
 static SERVICE_INFO UploadServiceInfo[] =
 {
     { UPLOAD_SERVICE_VIRUSTOTAL, L"www.virustotal.com", INTERNET_DEFAULT_HTTPS_PORT, WINHTTP_FLAG_SECURE, L"???", L"file" },
-    { UPLOAD_SERVICE_JOTTI, L"virusscan.jotti.org", INTERNET_DEFAULT_HTTP_PORT, 0, L"/processupload.php", L"scanfile" },
+    { UPLOAD_SERVICE_JOTTI, L"virusscan.jotti.org", INTERNET_DEFAULT_HTTPS_PORT, WINHTTP_FLAG_SECURE, L"/en-US/submit-file?isAjax=true", L"sample-file[]" },
     { UPLOAD_SERVICE_CIMA, L"camas.comodo.com", INTERNET_DEFAULT_HTTP_PORT, 0, L"/cgi-bin/submit", L"file" }
 };
 
-static HFONT InitializeFont(
+json_object_ptr json_get_object(json_object_ptr rootObj, const char* key)
+{
+    json_object_ptr returnObj;
+
+    if (json_object_object_get_ex(rootObj, key, &returnObj))
+    {
+        return returnObj;
+    }
+
+    return NULL;
+}
+
+HFONT InitializeFont(
     _In_ HWND hwnd
     )
 {
-    HFONT fontHandle;
-    NONCLIENTMETRICS metrics = { sizeof(NONCLIENTMETRICS) };
+    LOGFONT logFont;
 
-    if (SystemParametersInfo(SPI_GETNONCLIENTMETRICS, 0, &metrics, 0))
+    // Create the font handle
+    if (SystemParametersInfo(SPI_GETICONTITLELOGFONT, sizeof(LOGFONT), &logFont, 0))
     {
-        metrics.lfMessageFont.lfHeight = -15;
-        //metrics.lfMessageFont.lfWeight = FW_MEDIUM;
-        //metrics.lfMessageFont.lfQuality = CLEARTYPE_QUALITY | ANTIALIASED_QUALITY;
+        HDC hdc;
 
-        fontHandle = CreateFontIndirect(&metrics.lfMessageFont);
+        if (hdc = GetDC(hwnd))
+        {
+            HFONT fontHandle = CreateFont(
+                -MulDiv(-14, GetDeviceCaps(hdc, LOGPIXELSY), 72),
+                0,
+                0,
+                0,
+                FW_MEDIUM,
+                FALSE,
+                FALSE,
+                FALSE,
+                ANSI_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY | ANTIALIASED_QUALITY,
+                DEFAULT_PITCH,
+                logFont.lfFaceName
+                );
+
+            SendMessage(hwnd, WM_SETFONT, (WPARAM)fontHandle, TRUE);
+
+            ReleaseDC(hwnd, hdc);
+
+            return fontHandle;
+        }
     }
-    else
-    {
-        LOGFONT font;
 
-        GetObject((HFONT)GetStockObject(DEFAULT_GUI_FONT), sizeof(LOGFONT), &font);
-
-        font.lfHeight = -15;
-
-        fontHandle = CreateFontIndirect(&font);
-    }
-
-    SendMessage(hwnd, WM_SETFONT, (WPARAM)fontHandle, TRUE);
-
-    return fontHandle;
+    return NULL;
 }
 
-static BOOL ReadRequestString(
+BOOL ReadRequestString(
     _In_ HINTERNET Handle,
     _Out_ _Deref_post_z_cap_(*DataLength) PSTR *Data,
     _Out_ ULONG *DataLength
@@ -114,7 +137,7 @@ static BOOL ReadRequestString(
     return TRUE;
 }
 
-static VOID RaiseUploadError(
+VOID RaiseUploadError(
     _In_ PUPLOAD_CONTEXT Context,
     _In_ PWSTR Error,
     _In_ ULONG ErrorCode
@@ -131,13 +154,13 @@ static VOID RaiseUploadError(
     }
 }
 
-static PSERVICE_INFO GetUploadServiceInfo(
+PSERVICE_INFO GetUploadServiceInfo(
     _In_ ULONG Id
     )
 {
     ULONG i;
 
-    for (i = 0; i < _countof(UploadServiceInfo); i++)
+    for (i = 0; i < ARRAYSIZE(UploadServiceInfo); i++)
     {
         if (UploadServiceInfo[i].Id == Id)
             return &UploadServiceInfo[i];
@@ -146,9 +169,11 @@ static PSERVICE_INFO GetUploadServiceInfo(
     return NULL;
 }
 
-static BOOLEAN PerformSubRequest(
+BOOLEAN PerformSubRequest(
     _In_ PUPLOAD_CONTEXT Context,
     _In_ PWSTR HostName,
+    _In_ INTERNET_PORT HostPort,
+    _In_ ULONG HostFlags,
     _In_ PWSTR ObjectName,
     _Out_ _Deref_post_z_cap_(*DataLength) PSTR *Data,
     _Out_opt_ PULONG DataLength
@@ -164,7 +189,7 @@ static BOOLEAN PerformSubRequest(
         if (!(connectHandle = WinHttpConnect(
             Context->HttpHandle,
             HostName,
-            INTERNET_DEFAULT_HTTP_PORT,
+            HostPort,
             0
             )))
         {
@@ -175,12 +200,12 @@ static BOOLEAN PerformSubRequest(
         // Create the request.
         if (!(requestHandle = WinHttpOpenRequest(
             connectHandle,
-            NULL, // GET
+            NULL,
             ObjectName,
-            NULL,// HTTP/1.1
+            NULL,
             WINHTTP_NO_REFERER,
             WINHTTP_DEFAULT_ACCEPT_TYPES,
-            WINHTTP_FLAG_REFRESH
+            WINHTTP_FLAG_REFRESH | HostFlags
             )))
         {
             RaiseUploadError(Context, L"Unable to create the request", GetLastError());
@@ -188,13 +213,21 @@ static BOOLEAN PerformSubRequest(
         }
 
         // Send the request.
-        if (!WinHttpSendRequest(requestHandle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+        if (!WinHttpSendRequest(
+            requestHandle, 
+            WINHTTP_NO_ADDITIONAL_HEADERS, 
+            0, 
+            WINHTTP_NO_REQUEST_DATA, 
+            0, 
+            WINHTTP_IGNORE_REQUEST_TOTAL_LENGTH,
+            0
+            ))
         {
             RaiseUploadError(Context, L"Unable to send the request", GetLastError());
             __leave;
         }
 
-        // Wait for the send request to complete and recieve the response.
+        // Wait for the send request to complete and receive the response.
         if (WinHttpReceiveResponse(requestHandle, NULL))
         {
             BYTE buffer[PAGE_SIZE];
@@ -257,7 +290,7 @@ static BOOLEAN PerformSubRequest(
     return result;
 }
 
-static NTSTATUS HashFileAndResetPosition(
+NTSTATUS HashFileAndResetPosition(
     _In_ HANDLE FileHandle,
     _In_ PLARGE_INTEGER FileSize,
     _In_ ULONG Algorithm,
@@ -342,7 +375,7 @@ static NTSTATUS HashFileAndResetPosition(
     return status;
 }
 
-static NTSTATUS UploadFileThreadStart(
+NTSTATUS UploadFileThreadStart(
     _In_ PVOID Parameter
     )
 {
@@ -414,7 +447,7 @@ static NTSTATUS UploadFileThreadStart(
             connectHandle,
             L"POST",
             context->ObjectName->Buffer,
-            NULL, // HTTP/1.1
+            NULL,
             WINHTTP_NO_REFERER,
             WINHTTP_DEFAULT_ACCEPT_TYPES,
             WINHTTP_FLAG_REFRESH | serviceInfo->HostFlags
@@ -424,9 +457,21 @@ static NTSTATUS UploadFileThreadStart(
             __leave;
         }
 
-        // TODO? Set timeouts and disable http redirection
-        //ULONG timeout = 5 * 60 * 1000; // 5 minutes
-        //WinHttpSetTimeouts(requestHandle, timeout, timeout, timeout, timeout);
+        if (context->Service == UPLOAD_SERVICE_JOTTI)
+        {
+            PPH_STRING ajaxHeader;
+
+            ajaxHeader = PhCreateString(L"X-Requested-With: XMLHttpRequest");
+
+            WinHttpAddRequestHeaders(
+                requestHandle,
+                ajaxHeader->Buffer,
+                (ULONG)ajaxHeader->Length / sizeof(WCHAR),
+                WINHTTP_ADDREQ_FLAG_ADD
+                );
+
+            PhDereferenceObject(ajaxHeader);
+        }
 
         // Create and POST data.
         PhInitializeStringBuilder(&httpRequestHeaders, MAX_PATH);
@@ -439,31 +484,77 @@ static NTSTATUS UploadFileThreadStart(
             (ULONG64)RtlRandomEx(&httpPostSeed) | ((ULONG64)RtlRandomEx(&httpPostSeed) << 31)
             );
         // build request header string
-        PhAppendFormatStringBuilder(&httpRequestHeaders,
+        PhAppendFormatStringBuilder(
+            &httpRequestHeaders,
             L"Content-Type: multipart/form-data; boundary=%s\r\n",
             postBoundary->Buffer
             );
-        // POST boundary header
-        PhAppendFormatStringBuilder(&httpPostHeader,
-            L"--%s\r\n",
-            postBoundary->Buffer
-            );
-        PhAppendFormatStringBuilder(&httpPostHeader,
-            L"Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n",
-            serviceInfo->FileNameFieldName,
-            context->BaseFileName->Buffer
-            );
-        PhAppendFormatStringBuilder(&httpPostHeader,
-            L"Content-Type: application/octet-stream\r\n\r\n"
-            );
-        // POST boundary footer
-        PhAppendFormatStringBuilder(&httpPostFooter,
-            L"\r\n--%s--\r\n\r\n",
-            postBoundary->Buffer
-            );
+
+        if (context->Service == UPLOAD_SERVICE_JOTTI)
+        {
+            // POST boundary header
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"\r\n--%s\r\n",
+                postBoundary->Buffer
+                );
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"\r\n\r\n268435456\r\n"
+                );
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"--%s\r\n",
+                postBoundary->Buffer
+                );
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n",
+                serviceInfo->FileNameFieldName,
+                context->BaseFileName->Buffer
+                );
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"Content-Type: application/x-msdownload\r\n\r\n"
+                );
+
+            // POST boundary footer
+            PhAppendFormatStringBuilder(
+                &httpPostFooter,
+                L"\r\n--%s--\r\n",
+                postBoundary->Buffer
+                );
+        }
+        else
+        {
+            // POST boundary header
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"--%s\r\n",
+                postBoundary->Buffer
+                );
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n",
+                serviceInfo->FileNameFieldName,
+                context->BaseFileName->Buffer
+                );
+            PhAppendFormatStringBuilder(
+                &httpPostHeader,
+                L"Content-Type: application/octet-stream\r\n\r\n"
+                );
+
+            // POST boundary footer
+            PhAppendFormatStringBuilder(
+                &httpPostFooter,
+                L"\r\n--%s--\r\n\r\n",
+                postBoundary->Buffer
+                );
+        }
 
         // add headers
-        if (!WinHttpAddRequestHeaders(requestHandle,
+        if (!WinHttpAddRequestHeaders(
+            requestHandle,
             httpRequestHeaders.String->Buffer,
             -1L,
             WINHTTP_ADDREQ_FLAG_REPLACE | WINHTTP_ADDREQ_FLAG_ADD
@@ -474,13 +565,17 @@ static NTSTATUS UploadFileThreadStart(
         }
 
         // All until now has been just for this; Calculate the total request length.
-        totalUploadLength = (ULONG)PhCountStringZ(httpPostHeader.String->Buffer) + context->TotalFileLength + (ULONG)PhCountStringZ(httpPostFooter.String->Buffer);
+        totalUploadLength = (ULONG)httpPostHeader.String->Length / sizeof(WCHAR) + context->TotalFileLength + (ULONG)httpPostFooter.String->Length / sizeof(WCHAR);
 
         // Send the request.
-        if (!WinHttpSendRequest(requestHandle,
-            WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-            WINHTTP_NO_REQUEST_DATA, 0,
-            totalUploadLength, 0
+        if (!WinHttpSendRequest(
+            requestHandle,
+            WINHTTP_NO_ADDITIONAL_HEADERS, 
+            0,
+            WINHTTP_NO_REQUEST_DATA, 
+            0,
+            totalUploadLength,
+            0
             ))
         {
             RaiseUploadError(context, L"Unable to send the request", GetLastError());
@@ -532,33 +627,35 @@ static NTSTATUS UploadFileThreadStart(
 
             totalUploadedLength += totalWriteLength;
 
+            // Query the current time
             PhQuerySystemTime(&timeNow);
 
+            // Calculate the number of ticks
             timeTicks = (timeNow.QuadPart - timeStart.QuadPart) / PH_TICKS_PER_SEC;
             timeBitsPerSecond = totalUploadedLength / __max(timeTicks, 1);
 
             {
                 FLOAT percent = ((FLOAT)totalUploadedLength / context->TotalFileLength * 100);
                 PPH_STRING totalLength = PhFormatSize(context->TotalFileLength, -1);
-                PPH_STRING totalDownloadedLength = PhFormatSize(totalUploadedLength, -1);
+                PPH_STRING totalUploaded = PhFormatSize(totalUploadedLength, -1);
                 PPH_STRING totalSpeed = PhFormatSize(timeBitsPerSecond, -1);
 
-                PPH_STRING dlLengthString = PhFormatString(
+                PPH_STRING statusMessage = PhFormatString(
                     L"%s of %s @ %s/s",
-                    totalDownloadedLength->Buffer,
+                    totalUploaded->Buffer,
                     totalLength->Buffer,
                     totalSpeed->Buffer
                     );
 
-                Static_SetText(context->StatusHandle, dlLengthString->Buffer);
-
-                PhDereferenceObject(dlLengthString);
-                PhDereferenceObject(totalSpeed);
-                PhDereferenceObject(totalLength);
-                PhDereferenceObject(totalDownloadedLength);
+                Static_SetText(context->StatusHandle, statusMessage->Buffer);
 
                 // Update the progress bar position
                 PostMessage(context->ProgressHandle, PBM_SETPOS, (INT)percent, 0);
+
+                PhDereferenceObject(statusMessage);
+                PhDereferenceObject(totalSpeed);
+                PhDereferenceObject(totalLength);
+                PhDereferenceObject(totalUploaded);
             }
         }
 
@@ -574,7 +671,7 @@ static NTSTATUS UploadFileThreadStart(
             __leave;
         }
 
-        // Wait for the send request to complete and recieve the response.
+        // Wait for the send request to complete and receive the response.
         if (!WinHttpReceiveResponse(requestHandle, NULL))
         {
             RaiseUploadError(context, L"Unable to receive the response", GetLastError());
@@ -621,46 +718,25 @@ static NTSTATUS UploadFileThreadStart(
                     PSTR quote = NULL;
                     PSTR buffer = NULL;
                     ULONG bufferLength = 0;
+                    json_object_ptr rootJsonObject;
 
-                    //This service returns some JavaScript that redirects the user to the new location.
+                    //This service returns some json that redirects the user to the new location.
                     if (!ReadRequestString(requestHandle, &buffer, &bufferLength))
                     {
                         RaiseUploadError(context, L"Unable to complete the request", GetLastError());
                         __leave;
                     }
 
-                    // The JavaScript looks like this: top.location.href="...";
-                    hrefEquals = strstr(buffer, "href=\"");
-                    if (hrefEquals)
+                    if (rootJsonObject = json_tokener_parse(buffer))
                     {
-                        hrefEquals += 6;
-                        quote = strchr(hrefEquals, '"');
+                        PSTR redirectUrl = json_object_get_string(json_get_object(rootJsonObject, "redirecturl"));
 
-                        if (quote)
-                        {
-                            context->LaunchCommand = PhFormatString(
-                                L"http://virusscan.jotti.org%.*S",
-                                quote - hrefEquals,
-                                hrefEquals
-                                );
-                        }
-                    }
-                    else
-                    {
-                        PSTR tooManyFiles = strstr(buffer, "Too many files");
+                        context->LaunchCommand = PhFormatString(
+                            L"http://virusscan.jotti.org%hs",
+                            redirectUrl
+                            );
 
-                        if (tooManyFiles)
-                        {
-                            RaiseUploadError(
-                                context,
-                                L"Unable to scan the file:\n\n"
-                                L"Too many files have been scanned from this IP in a short period. "
-                                L"Please try again later",
-                                0
-                                );
-
-                            __leave;
-                        }
+                        json_object_put(rootJsonObject);
                     }
                 }
                 break;
@@ -757,7 +833,7 @@ static NTSTATUS UploadFileThreadStart(
     return status;
 }
 
-static NTSTATUS UploadCheckThreadStart(
+NTSTATUS UploadCheckThreadStart(
     _In_ PVOID Parameter
     )
 {
@@ -844,6 +920,19 @@ static NTSTATUS UploadCheckThreadStart(
 
             if (!context->HttpHandle)
                 __leave;
+
+            if (WindowsVersion >= WINDOWS_8_1)
+            {
+                // Enable GZIP and DEFLATE support on Windows 8.1 and above using undocumented flags.
+                ULONG httpFlags = WINHTTP_DECOMPRESSION_FLAG_GZIP | WINHTTP_DECOMPRESSION_FLAG_DEFLATE;
+
+                WinHttpSetOption(
+                    context->HttpHandle,
+                    WINHTTP_OPTION_DECOMPRESSION,
+                    &httpFlags,
+                    sizeof(ULONG)
+                    );
+            }
         }
 
         switch (context->Service)
@@ -854,9 +943,9 @@ static NTSTATUS UploadCheckThreadStart(
                 PSTR quote = NULL;
                 ULONG bufferLength = 0;
                 UCHAR hash[32];
+                json_object_ptr rootJsonObject;
 
-                status = HashFileAndResetPosition(fileHandle, &fileSize64, HASH_SHA256, hash);
-                if (!NT_SUCCESS(status))
+                if (!NT_SUCCESS(status = HashFileAndResetPosition(fileHandle, &fileSize64, HASH_SHA256, hash)))
                 {
                     RaiseUploadError(context, L"Unable to hash the file", RtlNtStatusToDosError(status));
                     __leave;
@@ -866,30 +955,36 @@ static NTSTATUS UploadCheckThreadStart(
                 subObjectName = PhConcatStrings2(L"/file/upload/?sha256=", hashString->Buffer);
                 context->LaunchCommand = PhFormatString(L"http://www.virustotal.com/file/%s/analysis/", hashString->Buffer);
 
-                if (!PerformSubRequest(context, serviceInfo->HostName, subObjectName->Buffer, &subRequestBuffer, &bufferLength))
-                    __leave;
-
-                if (strstr(subRequestBuffer, "\"file_exists\": true"))
+                if (!PerformSubRequest(
+                    context,
+                    serviceInfo->HostName,
+                    serviceInfo->HostPort,
+                    serviceInfo->HostFlags,
+                    subObjectName->Buffer,
+                    &subRequestBuffer,
+                    &bufferLength
+                    ))
                 {
-                    fileExists = TRUE;
-                }
-
-                uploadUrl = strstr(subRequestBuffer, "\"upload_url\": \"https://www.virustotal.com");
-                if (!uploadUrl)
-                {
-                    RaiseUploadError(context, L"Unable to complete the request (no upload URL provided)", ERROR_INVALID_DATA);
                     __leave;
                 }
 
-                uploadUrl += 41;
-                quote = strchr(uploadUrl, '"');
-                if (!quote)
+                if (rootJsonObject = json_tokener_parse(subRequestBuffer))
                 {
-                    RaiseUploadError(context, L"Unable to complete the request (invalid upload URL)", ERROR_INVALID_DATA);
-                    __leave;
-                }
+                    json_bool file_Exists;
+                    PSTR uploadUrl;
 
-                context->ObjectName = PhZeroExtendToUtf16Ex(uploadUrl, quote - uploadUrl);
+                    file_Exists  = json_object_get_boolean(json_get_object(rootJsonObject, "file_exists"));
+                    uploadUrl = json_object_get_string(json_get_object(rootJsonObject, "upload_url"));
+
+                    if (file_Exists)
+                    {
+                        fileExists = TRUE;
+                    }
+
+                    context->ObjectName = PhZeroExtendToUtf16(uploadUrl + strlen("https://www.virustotal.com"));
+
+                    json_object_put(rootJsonObject);
+                }
 
                 // Create the default upload URL
                 if (!context->ObjectName)
@@ -898,36 +993,6 @@ static NTSTATUS UploadCheckThreadStart(
             break;
         case UPLOAD_SERVICE_JOTTI:
             {
-                PSTR uploadId = NULL;
-                PSTR quote = NULL;
-                ULONG bufferLength = 0;
-                UCHAR hash[20];
-
-                status = HashFileAndResetPosition(fileHandle, &fileSize64, HASH_SHA1, hash);
-                if (!NT_SUCCESS(status))
-                {
-                    RaiseUploadError(context, L"Unable to hash the file", RtlNtStatusToDosError(status));
-                    __leave;
-                }
-
-                hashString = PhBufferToHexString(hash, 20);
-                subObjectName = PhConcatStrings2(L"/nestor/getfileforhash.php?hash=", hashString->Buffer);
-
-                if (!PerformSubRequest(context, serviceInfo->HostName, subObjectName->Buffer, &subRequestBuffer, &bufferLength))
-                    __leave;
-
-                if (uploadId = strstr(subRequestBuffer, "\"id\":"))
-                {
-                    uploadId += 6;
-                    quote = strchr(uploadId, '"');
-
-                    if (quote)
-                    {
-                        fileExists = TRUE;
-                        context->LaunchCommand = PhFormatString(L"http://virusscan.jotti.org/en/scanresult/%.*S", quote - uploadId, uploadId);
-                    }
-                }
-
                 // Create the default upload URL
                 if (!context->ObjectName)
                     context->ObjectName = PhCreateString(serviceInfo->UploadObjectName);
@@ -941,8 +1006,7 @@ static NTSTATUS UploadCheckThreadStart(
                 ULONG status = 0;
                 ULONG statusLength = sizeof(statusLength);
 
-                status = HashFileAndResetPosition(fileHandle, &fileSize64, HASH_SHA256, hash);
-                if (!NT_SUCCESS(status))
+                if (!NT_SUCCESS(status = HashFileAndResetPosition(fileHandle, &fileSize64, HASH_SHA256, hash)))
                 {
                     RaiseUploadError(context, L"Unable to hash the file", RtlNtStatusToDosError(status));
                     __leave;
@@ -967,9 +1031,9 @@ static NTSTATUS UploadCheckThreadStart(
                 // Create the request.
                 if (!(requestHandle = WinHttpOpenRequest(
                     connectHandle,
-                    NULL, // Get
+                    NULL,
                     subObjectName->Buffer,
-                    NULL,// HTTP/1.1
+                    NULL,
                     WINHTTP_NO_REFERER,
                     WINHTTP_DEFAULT_ACCEPT_TYPES,
                     WINHTTP_FLAG_REFRESH
@@ -980,16 +1044,24 @@ static NTSTATUS UploadCheckThreadStart(
                 }
 
                 // Send the request.
-                if (!WinHttpSendRequest(requestHandle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+                if (!WinHttpSendRequest(
+                    requestHandle,
+                    WINHTTP_NO_ADDITIONAL_HEADERS, 
+                    0, 
+                    WINHTTP_NO_REQUEST_DATA, 
+                    0,
+                    WINHTTP_IGNORE_REQUEST_TOTAL_LENGTH,
+                    0
+                    ))
                 {
                     RaiseUploadError(context, L"Unable to send the CIMA request", GetLastError());
                     __leave;
                 }
 
-                // Wait for the send request to complete and recieve the response.
+                // Wait for the send request to complete and receive the response.
                 if (!WinHttpReceiveResponse(requestHandle, NULL))
                 {
-                    RaiseUploadError(context, L"Unable to recieve the CIMA response", GetLastError());
+                    RaiseUploadError(context, L"Unable to receive the CIMA response", GetLastError());
                     __leave;
                 }
 
@@ -1029,8 +1101,8 @@ static NTSTATUS UploadCheckThreadStart(
     }
     __finally
     {
-        PhMoveReference(&hashString, NULL);
-        PhMoveReference(&subObjectName, NULL);
+        PhClearReference(&hashString);
+        PhClearReference(&subObjectName);
 
         if (requestHandle)
         {
@@ -1051,7 +1123,7 @@ static NTSTATUS UploadCheckThreadStart(
     return status;
 }
 
-static INT_PTR CALLBACK UploadDlgProc(
+INT_PTR CALLBACK UploadDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -1071,11 +1143,11 @@ static INT_PTR CALLBACK UploadDlgProc(
 
         if (uMsg == WM_NCDESTROY)
         {
-            PhMoveReference(&context->FileName, NULL);
-            PhMoveReference(&context->BaseFileName, NULL);
-            PhMoveReference(&context->WindowFileName, NULL);
-            PhMoveReference(&context->LaunchCommand, NULL);
-            PhMoveReference(&context->ObjectName, NULL);
+            PhClearReference(&context->FileName);
+            PhClearReference(&context->BaseFileName);
+            PhClearReference(&context->WindowFileName);
+            PhClearReference(&context->LaunchCommand);
+            PhClearReference(&context->ObjectName);
 
             if (context->MessageFont)
                 DeleteObject(context->MessageFont);
@@ -1085,6 +1157,8 @@ static INT_PTR CALLBACK UploadDlgProc(
 
             RemoveProp(hwndDlg, L"Context");
             PhFree(context);
+
+            PostQuitMessage(0);
         }
     }
 
@@ -1098,7 +1172,7 @@ static INT_PTR CALLBACK UploadDlgProc(
             HANDLE dialogThread = NULL;
             HWND parentWindow = GetParent(hwndDlg);
 
-            PhCenterWindow(hwndDlg, (IsWindowVisible(parentWindow) && !IsIconic(parentWindow)) ? parentWindow : NULL);
+            PhCenterWindow(hwndDlg, (IsWindowVisible(parentWindow) && !IsMinimized(parentWindow)) ? parentWindow : NULL);
 
             context->DialogHandle = hwndDlg;
             context->StatusHandle = GetDlgItem(hwndDlg, IDC_STATUS);
@@ -1141,7 +1215,7 @@ static INT_PTR CALLBACK UploadDlgProc(
                         PhShellExecute(hwndDlg, context->LaunchCommand->Buffer, NULL);
                     }
 
-                    PostQuitMessage(0);
+                    DestroyWindow(hwndDlg);
                 }
                 break;
             case IDNO:
@@ -1165,14 +1239,14 @@ static INT_PTR CALLBACK UploadDlgProc(
                     else
                     {
                         context->UploadServiceState = PhUploadServiceMaximum;
-                        PostQuitMessage(0);
+                        DestroyWindow(hwndDlg);
                     }
                 }
                 break;
             case IDCANCEL:
                 {
                     context->UploadServiceState = PhUploadServiceMaximum;
-                    PostQuitMessage(0);
+                    DestroyWindow(hwndDlg);
                 }
             }
             break;
@@ -1218,7 +1292,7 @@ static INT_PTR CALLBACK UploadDlgProc(
                 PhShellExecute(hwndDlg, context->LaunchCommand->Buffer, NULL);
             }
 
-            PostQuitMessage(0);
+            DestroyWindow(hwndDlg);
         }
         break;
     case UM_ERROR:
@@ -1230,7 +1304,7 @@ static INT_PTR CALLBACK UploadDlgProc(
             if (errorMessage)
             {
                 Static_SetText(GetDlgItem(hwndDlg, IDC_MESSAGE), errorMessage->Buffer);
-                PhMoveReference(&errorMessage, NULL);
+                PhClearReference(&errorMessage);
             }
             else
             {
@@ -1246,7 +1320,7 @@ static INT_PTR CALLBACK UploadDlgProc(
     return FALSE;
 }
 
-static NTSTATUS PhUploadToDialogThreadStart(
+NTSTATUS PhUploadToDialogThreadStart(
     _In_ PVOID Parameter
     )
 {
@@ -1284,7 +1358,6 @@ static NTSTATUS PhUploadToDialogThreadStart(
     }
 
     PhDeleteAutoPool(&autoPool);
-    DestroyWindow(dialogHandle);
 
     return STATUS_SUCCESS;
 }

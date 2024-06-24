@@ -2,7 +2,7 @@
  * Process Hacker -
  *   thread provider
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,16 +21,18 @@
  */
 
 /*
- * The thread provider is tied to the process provider, and runs by registering
- * a callback for the processes-updated event. This is because calculating CPU
- * usage depends on deltas calculated by the process provider. However, this
- * does increase the complexity of the thread provider system.
+ * The thread provider is tied to the process provider, and runs by registering a callback for the
+ * processes-updated event. This is because calculating CPU usage depends on deltas calculated by
+ * the process provider. However, this does increase the complexity of the thread provider system.
  */
 
-#define PH_THRDPRV_PRIVATE
 #include <phapp.h>
+#include <thrdprv.h>
+#include <procprv.h>
+#include <workqueue.h>
 #include <kphuser.h>
 #include <symprv.h>
+#include <svcsup.h>
 #include <extmgri.h>
 
 typedef struct _PH_THREAD_QUERY_DATA
@@ -63,7 +65,7 @@ VOID NTAPI PhpThreadItemDeleteProcedure(
     _In_ ULONG Flags
     );
 
-BOOLEAN NTAPI PhpThreadHashtableCompareFunction(
+BOOLEAN NTAPI PhpThreadHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -126,7 +128,7 @@ PPH_THREAD_PROVIDER PhCreateThreadProvider(
 
     threadProvider->ThreadHashtable = PhCreateHashtable(
         sizeof(PPH_THREAD_ITEM),
-        PhpThreadHashtableCompareFunction,
+        PhpThreadHashtableEqualFunction,
         PhpThreadHashtableHashFunction,
         20
         );
@@ -198,8 +200,7 @@ VOID PhpThreadProviderDeleteProcedure(
         }
     }
 
-    // We don't close the process handle because it is owned by
-    // the symbol provider.
+    // We don't close the process handle because it is owned by the symbol provider.
     if (threadProvider->SymbolProvider) PhDereferenceObject(threadProvider->SymbolProvider);
 }
 
@@ -239,9 +240,8 @@ static BOOLEAN LoadSymbolsEnumGenericModulesCallback(
     if (context->ThreadProvider->Terminating)
         return FALSE;
 
-    // If we're loading kernel module symbols for a process other than
-    // System, ignore modules which are in user space. This may happen
-    // in Windows 7.
+    // If we're loading kernel module symbols for a process other than System, ignore modules which
+    // are in user space. This may happen in Windows 7.
     if (context->ProcessId == SYSTEM_PROCESS_ID &&
         context->ThreadProvider->ProcessId != SYSTEM_PROCESS_ID &&
         (ULONG_PTR)Module->BaseAddress <= PhSystemBasicInformation.MaximumUserModeAddress)
@@ -314,8 +314,7 @@ VOID PhLoadSymbolsThreadProvider(
         }
         else
         {
-            // We can't enumerate the process modules. Load
-            // symbols for ntdll.dll and kernel32.dll.
+            // We can't enumerate the process modules. Load symbols for ntdll.dll and kernel32.dll.
             loadContext.ProcessId = NtCurrentProcessId();
             PhEnumGenericModules(
                 NtCurrentProcessId(),
@@ -341,9 +340,8 @@ VOID PhLoadSymbolsThreadProvider(
     }
     else
     {
-        // System Idle Process has one thread for each CPU,
-        // each having a start address at KiIdleLoop. We
-        // need to load symbols for the kernel.
+        // System Idle Process has one thread for each CPU, each having a start address at
+        // KiIdleLoop. We need to load symbols for the kernel.
 
         PRTL_PROCESS_MODULES kernelModules;
 
@@ -387,7 +385,7 @@ PPH_THREAD_ITEM PhCreateThreadItem(
         );
     memset(threadItem, 0, sizeof(PH_THREAD_ITEM));
     threadItem->ThreadId = ThreadId;
-    PhPrintUInt32(threadItem->ThreadIdString, (ULONG)ThreadId);
+    PhPrintUInt32(threadItem->ThreadIdString, HandleToUlong(ThreadId));
 
     PhEmCallObjectOperation(EmThreadItemType, threadItem, EmObjectCreate);
 
@@ -409,7 +407,7 @@ VOID PhpThreadItemDeleteProcedure(
     if (threadItem->ServiceName) PhDereferenceObject(threadItem->ServiceName);
 }
 
-BOOLEAN PhpThreadHashtableCompareFunction(
+BOOLEAN PhpThreadHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -423,7 +421,7 @@ ULONG PhpThreadHashtableHashFunction(
     _In_ PVOID Entry
     )
 {
-    return (ULONG)(*(PPH_THREAD_ITEM *)Entry)->ThreadId / 4;
+    return HandleToUlong((*(PPH_THREAD_ITEM *)Entry)->ThreadId) / 4;
 }
 
 PPH_THREAD_ITEM PhReferenceThreadItem(
@@ -653,9 +651,9 @@ static NTSTATUS PhpGetThreadCycleTime(
     }
     else
     {
-        if ((ULONG)ThreadItem->ThreadId < (ULONG)PhSystemBasicInformation.NumberOfProcessors)
+        if (HandleToUlong(ThreadItem->ThreadId) < (ULONG)PhSystemBasicInformation.NumberOfProcessors)
         {
-            *CycleTime = PhCpuIdleCycleTime[(ULONG)ThreadItem->ThreadId].QuadPart;
+            *CycleTime = PhCpuIdleCycleTime[HandleToUlong(ThreadItem->ThreadId)].QuadPart;
             return STATUS_SUCCESS;
         }
     }
@@ -663,30 +661,32 @@ static NTSTATUS PhpGetThreadCycleTime(
     return STATUS_INVALID_PARAMETER;
 }
 
-PPH_STRING PhGetThreadPriorityWin32String(
-    _In_ LONG PriorityWin32
+PPH_STRING PhGetBasePriorityIncrementString(
+    _In_ LONG Increment
     )
 {
-    switch (PriorityWin32)
+    switch (Increment)
     {
-    case THREAD_PRIORITY_TIME_CRITICAL:
-        return PhCreateString(L"Time Critical");
+    case THREAD_BASE_PRIORITY_LOWRT + 1:
+    case THREAD_BASE_PRIORITY_LOWRT:
+        return PhCreateString(L"Time critical");
     case THREAD_PRIORITY_HIGHEST:
         return PhCreateString(L"Highest");
     case THREAD_PRIORITY_ABOVE_NORMAL:
-        return PhCreateString(L"Above Normal");
+        return PhCreateString(L"Above normal");
     case THREAD_PRIORITY_NORMAL:
         return PhCreateString(L"Normal");
     case THREAD_PRIORITY_BELOW_NORMAL:
-        return PhCreateString(L"Below Normal");
+        return PhCreateString(L"Below normal");
     case THREAD_PRIORITY_LOWEST:
         return PhCreateString(L"Lowest");
-    case THREAD_PRIORITY_IDLE:
+    case THREAD_BASE_PRIORITY_IDLE:
+    case THREAD_BASE_PRIORITY_IDLE - 1:
         return PhCreateString(L"Idle");
     case THREAD_PRIORITY_ERROR_RETURN:
         return NULL;
     default:
-        return PhFormatString(L"%d", PriorityWin32);
+        return PhFormatString(L"%d", Increment);
     }
 }
 
@@ -730,8 +730,7 @@ VOID PhpThreadProviderUpdate(
 
     if (!process)
     {
-        // The process doesn't exist anymore. Pretend it does but
-        // has no threads.
+        // The process doesn't exist anymore. Pretend it does but has no threads.
         process = &localProcess;
         process->NumberOfThreads = 0;
     }
@@ -739,14 +738,13 @@ VOID PhpThreadProviderUpdate(
     threads = process->Threads;
     numberOfThreads = process->NumberOfThreads;
 
-    // System Idle Process has one thread per CPU.
-    // They all have a TID of 0, but we can't have
-    // multiple TIDs, so we'll assign unique TIDs.
+    // System Idle Process has one thread per CPU. They all have a TID of 0. We can't have duplicate
+    // TIDs, so we'll assign unique TIDs.
     if (threadProvider->ProcessId == SYSTEM_IDLE_PROCESS_ID)
     {
         for (i = 0; i < numberOfThreads; i++)
         {
-            threads[i].ClientId.UniqueThread = (HANDLE)i;
+            threads[i].ClientId.UniqueThread = UlongToHandle(i);
         }
     }
 
@@ -834,6 +832,7 @@ VOID PhpThreadProviderUpdate(
     {
         PSYSTEM_THREAD_INFORMATION thread = &threads[i];
         PPH_THREAD_ITEM threadItem;
+        THREAD_BASIC_INFORMATION basicInfo;
 
         threadItem = PhReferenceThreadItem(threadProvider, thread->ClientId.UniqueThread);
 
@@ -904,8 +903,18 @@ VOID PhpThreadProviderUpdate(
 
             threadItem->StartAddress = (ULONG64)startAddress;
 
-            // Get the Win32 priority.
-            threadItem->PriorityWin32 = GetThreadPriority(threadItem->ThreadHandle);
+            // Get the base priority increment (relative to the process priority).
+            if (threadItem->ThreadHandle && NT_SUCCESS(PhGetThreadBasicInformation(
+                threadItem->ThreadHandle,
+                &basicInfo
+                )))
+            {
+                threadItem->BasePriorityIncrement = basicInfo.BasePriority;
+            }
+            else
+            {
+                threadItem->BasePriorityIncrement = THREAD_PRIORITY_ERROR_RETURN;
+            }
 
             if (threadProvider->SymbolsLoadedRunId != 0)
             {
@@ -930,27 +939,10 @@ VOID PhpThreadProviderUpdate(
             PhpQueueThreadQuery(threadProvider, threadItem);
 
             // Is it a GUI thread?
-
-            if (threadItem->ThreadHandle && KphIsConnected())
-            {
-                PVOID win32Thread;
-
-                if (NT_SUCCESS(KphQueryInformationThread(
-                    threadItem->ThreadHandle,
-                    KphThreadWin32Thread,
-                    &win32Thread,
-                    sizeof(PVOID),
-                    NULL
-                    )))
-                {
-                    threadItem->IsGuiThread = win32Thread != NULL;
-                }
-            }
-            else
             {
                 GUITHREADINFO info = { sizeof(GUITHREADINFO) };
 
-                threadItem->IsGuiThread = !!GetGUIThreadInfo((ULONG)threadItem->ThreadId, &info);
+                threadItem->IsGuiThread = !!GetGUIThreadInfo(HandleToUlong(threadItem->ThreadId), &info);
             }
 
             // Add the thread item to the hashtable.
@@ -1006,12 +998,9 @@ VOID PhpThreadProviderUpdate(
                 }
             }
 
-            // If we couldn't resolve the start address to a
-            // module+offset, use the StartAddress instead
-            // of the Win32StartAddress and try again.
-            // Note that we check the resolve level again
-            // because we may have changed it in the previous
-            // block.
+            // If we couldn't resolve the start address to a module+offset, use the StartAddress
+            // instead of the Win32StartAddress and try again. Note that we check the resolve level
+            // again because we may have changed it in the previous block.
             if (threadItem->JustResolved &&
                 threadItem->StartAddressResolveLevel == PhsrlAddress)
             {
@@ -1074,46 +1063,34 @@ VOID PhpThreadProviderUpdate(
                     (PhCpuKernelDelta.Delta + PhCpuUserDelta.Delta + PhCpuIdleDelta.Delta);
             }
 
-            // Update the Win32 priority.
+            // Update the base priority increment.
             {
-                LONG oldPriorityWin32 = threadItem->PriorityWin32;
+                LONG oldBasePriorityIncrement = threadItem->BasePriorityIncrement;
 
-                threadItem->PriorityWin32 = GetThreadPriority(threadItem->ThreadHandle);
+                if (threadItem->ThreadHandle && NT_SUCCESS(PhGetThreadBasicInformation(
+                    threadItem->ThreadHandle,
+                    &basicInfo
+                    )))
+                {
+                    threadItem->BasePriorityIncrement = basicInfo.BasePriority;
+                }
+                else
+                {
+                    threadItem->BasePriorityIncrement = THREAD_PRIORITY_ERROR_RETURN;
+                }
 
-                if (threadItem->PriorityWin32 != oldPriorityWin32)
+                if (threadItem->BasePriorityIncrement != oldBasePriorityIncrement)
                 {
                     modified = TRUE;
                 }
             }
 
             // Update the GUI thread status.
-
-            if (threadItem->ThreadHandle && KphIsConnected())
-            {
-                PVOID win32Thread;
-
-                if (NT_SUCCESS(KphQueryInformationThread(
-                    threadItem->ThreadHandle,
-                    KphThreadWin32Thread,
-                    &win32Thread,
-                    sizeof(PVOID),
-                    NULL
-                    )))
-                {
-                    BOOLEAN oldIsGuiThread = threadItem->IsGuiThread;
-
-                    threadItem->IsGuiThread = win32Thread != NULL;
-
-                    if (threadItem->IsGuiThread != oldIsGuiThread)
-                        modified = TRUE;
-                }
-            }
-            else
             {
                 GUITHREADINFO info = { sizeof(GUITHREADINFO) };
                 BOOLEAN oldIsGuiThread = threadItem->IsGuiThread;
 
-                threadItem->IsGuiThread = !!GetGUIThreadInfo((ULONG)threadItem->ThreadId, &info);
+                threadItem->IsGuiThread = !!GetGUIThreadInfo(HandleToUlong(threadItem->ThreadId), &info);
 
                 if (threadItem->IsGuiThread != oldIsGuiThread)
                     modified = TRUE;

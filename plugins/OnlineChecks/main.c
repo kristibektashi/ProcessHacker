@@ -3,7 +3,7 @@
  *   Main Program
  *
  * Copyright (C) 2010-2013 wj32
- * Copyright (C) 2012-2014 dmex
+ * Copyright (C) 2012-2016 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -30,23 +30,23 @@ static PH_CALLBACK_REGISTRATION PluginMenuItemCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ProcessMenuInitializingCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ModuleMenuInitializingCallbackRegistration;
 
-static VOID NTAPI LoadCallback(
+VOID NTAPI LoadCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
 {
-    // Nothing
+    NOTHING;
 }
 
-static VOID NTAPI ShowOptionsCallback(
+VOID NTAPI ShowOptionsCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
 {
-    // Nothing
+    NOTHING;
 }
 
-static VOID NTAPI MenuItemCallback(
+VOID NTAPI MenuItemCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -71,7 +71,7 @@ static VOID NTAPI MenuItemCallback(
     }
 }
 
-static PPH_EMENU_ITEM CreateSendToMenu(
+PPH_EMENU_ITEM CreateSendToMenu(
     _In_ PPH_EMENU_ITEM Parent,
     _In_ PWSTR InsertAfter,
     _In_ PPH_STRING FileName
@@ -82,7 +82,7 @@ static PPH_EMENU_ITEM CreateSendToMenu(
     ULONG insertIndex;
 
     // Create the Send To menu.
-    sendToMenu = PhPluginCreateEMenuItem(PluginInstance, 0, 0, L"Send To", NULL);
+    sendToMenu = PhPluginCreateEMenuItem(PluginInstance, 0, 0, L"Send to", NULL);
     PhInsertEMenuItem(sendToMenu, PhPluginCreateEMenuItem(PluginInstance, 0, ID_SENDTO_SERVICE1, L"virustotal.com", FileName), -1);
     PhInsertEMenuItem(sendToMenu, PhPluginCreateEMenuItem(PluginInstance, 0, ID_SENDTO_SERVICE2, L"virusscan.jotti.org", FileName), -1);
     PhInsertEMenuItem(sendToMenu, PhPluginCreateEMenuItem(PluginInstance, 0, ID_SENDTO_SERVICE3, L"camas.comodo.com", FileName), -1);
@@ -99,7 +99,7 @@ static PPH_EMENU_ITEM CreateSendToMenu(
     return sendToMenu;
 }
 
-static VOID NTAPI ProcessMenuInitializingCallback(
+VOID NTAPI ProcessMenuInitializingCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -113,7 +113,7 @@ static VOID NTAPI ProcessMenuInitializingCallback(
     else
         processItem = NULL;
 
-    sendToMenu = CreateSendToMenu(menuInfo->Menu, L"Search Online", processItem ? processItem->FileName : NULL);
+    sendToMenu = CreateSendToMenu(menuInfo->Menu, L"Search online", processItem ? processItem->FileName : NULL);
 
     // Only enable the Send To menu if there is exactly one process selected and it has a file name.
 
@@ -123,7 +123,7 @@ static VOID NTAPI ProcessMenuInitializingCallback(
     }
 }
 
-static VOID NTAPI ModuleMenuInitializingCallback(
+VOID NTAPI ModuleMenuInitializingCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -137,7 +137,7 @@ static VOID NTAPI ModuleMenuInitializingCallback(
     else
         moduleItem = NULL;
 
-    sendToMenu = CreateSendToMenu(menuInfo->Menu, L"Search Online", moduleItem ? moduleItem->FileName : NULL);
+    sendToMenu = CreateSendToMenu(menuInfo->Menu, L"Search online", moduleItem ? moduleItem->FileName : NULL);
 
     if (!moduleItem)
     {
@@ -165,7 +165,7 @@ LOGICAL DllMain(
             info->DisplayName = L"Online Checks";
             info->Author = L"dmex, wj32";
             info->Description = L"Allows files to be checked with online services.";
-            info->Url = L"http://processhacker.sf.net/forums/viewtopic.php?t=1118";
+            info->Url = L"https://wj32.org/processhacker/forums/viewtopic.php?t=1118";
             info->HasOptions = FALSE;
 
             PhRegisterCallback(

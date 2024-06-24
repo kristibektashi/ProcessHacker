@@ -21,6 +21,8 @@
  */
 
 #include <phapp.h>
+#include <memlist.h>
+#include <memprv.h>
 #include <settings.h>
 #include <extmgri.h>
 #include <phplug.h>
@@ -72,7 +74,7 @@ VOID PhInitializeMemoryList(
     TreeNew_SetRedraw(hwnd, FALSE);
 
     // Default columns
-    PhAddTreeNewColumn(hwnd, PHMMTLC_BASEADDRESS, TRUE, L"Base Address", 120, PH_ALIGN_LEFT, -2, 0);
+    PhAddTreeNewColumn(hwnd, PHMMTLC_BASEADDRESS, TRUE, L"Base address", 120, PH_ALIGN_LEFT, -2, 0);
     PhAddTreeNewColumn(hwnd, PHMMTLC_TYPE, TRUE, L"Type", 90, PH_ALIGN_LEFT, 0, 0);
     PhAddTreeNewColumnEx(hwnd, PHMMTLC_SIZE, TRUE, L"Size", 80, PH_ALIGN_RIGHT, 1, DT_RIGHT, TRUE);
     PhAddTreeNewColumn(hwnd, PHMMTLC_PROTECTION, TRUE, L"Protection", 60, PH_ALIGN_LEFT, 2, 0);
@@ -407,18 +409,18 @@ PPH_STRING PhpGetMemoryRegionUseText(
     case TebRegion:
     case Teb32Region:
         return PhFormatString(L"TEB%s (thread %u)",
-            type == Teb32Region ? L" 32-bit" : L"", (ULONG)MemoryItem->u.Teb.ThreadId);
+            type == Teb32Region ? L" 32-bit" : L"", HandleToUlong(MemoryItem->u.Teb.ThreadId));
     case StackRegion:
     case Stack32Region:
         return PhFormatString(L"Stack%s (thread %u)",
-            type == Stack32Region ? L" 32-bit" : L"", (ULONG)MemoryItem->u.Stack.ThreadId);
+            type == Stack32Region ? L" 32-bit" : L"", HandleToUlong(MemoryItem->u.Stack.ThreadId));
     case HeapRegion:
     case Heap32Region:
         return PhFormatString(L"Heap%s (ID %u)",
             type == Heap32Region ? L" 32-bit" : L"", (ULONG)MemoryItem->u.Heap.Index + 1);
     case HeapSegmentRegion:
     case HeapSegment32Region:
-        return PhFormatString(L"Heap Segment%s (ID %u)",
+        return PhFormatString(L"Heap segment%s (ID %u)",
             type == HeapSegment32Region ? L" 32-bit" : L"", (ULONG)MemoryItem->u.HeapSegment.HeapItem->u.Heap.Index + 1);
     default:
         return PhReferenceEmptyString();
@@ -869,10 +871,10 @@ VOID PhGetSelectedMemoryNodes(
     _Out_ PULONG NumberOfMemoryNodes
     )
 {
-    PPH_LIST list;
+    PH_ARRAY array;
     ULONG i;
 
-    list = PhCreateList(2);
+    PhInitializeArray(&array, sizeof(PVOID), 2);
 
     if (Context->TreeNewSortOrder == NoSortOrder)
     {
@@ -881,7 +883,7 @@ VOID PhGetSelectedMemoryNodes(
             PPH_MEMORY_NODE node = Context->AllocationBaseNodeList->Items[i];
 
             if (node->Node.Selected)
-                PhAddItemList(list, node);
+                PhAddItemArray(&array, &node);
         }
     }
 
@@ -890,13 +892,11 @@ VOID PhGetSelectedMemoryNodes(
         PPH_MEMORY_NODE node = Context->RegionNodeList->Items[i];
 
         if (node->Node.Selected)
-            PhAddItemList(list, node);
+                PhAddItemArray(&array, &node);
     }
 
-    *MemoryNodes = PhAllocateCopy(list->Items, sizeof(PVOID) * list->Count);
-    *NumberOfMemoryNodes = list->Count;
-
-    PhDereferenceObject(list);
+    *NumberOfMemoryNodes = (ULONG)array.Count;
+    *MemoryNodes = PhFinalArrayItems(&array);
 }
 
 VOID PhDeselectAllMemoryNodes(

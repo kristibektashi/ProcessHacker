@@ -61,6 +61,9 @@ VOID NTAPI MenuItemCallback(
     case NETWORK_ACTION_WHOIS:
         PerformNetworkAction(NETWORK_ACTION_WHOIS, networkItem);
         break;
+    case NETWORK_ACTION_PATHPING:
+        PerformNetworkAction(NETWORK_ACTION_PATHPING, networkItem);
+        break;
     }
 }
 
@@ -84,6 +87,7 @@ VOID NTAPI NetworkMenuInitializingCallback(
     PhInsertEMenuItem(toolsMenu, PhPluginCreateEMenuItem(PluginInstance, 0, NETWORK_ACTION_PING, L"Ping", networkItem), -1);
     PhInsertEMenuItem(toolsMenu, PhPluginCreateEMenuItem(PluginInstance, 0, NETWORK_ACTION_TRACEROUTE, L"Traceroute", networkItem), -1);
     PhInsertEMenuItem(toolsMenu, PhPluginCreateEMenuItem(PluginInstance, 0, NETWORK_ACTION_WHOIS, L"Whois", networkItem), -1);
+    PhInsertEMenuItem(toolsMenu, PhPluginCreateEMenuItem(PluginInstance, 0, NETWORK_ACTION_PATHPING, L"PathPing", networkItem), -1);
 
     // Insert the Tools menu into the network menu.
     closeMenuItem = PhFindEMenuItem(menuInfo->Menu, 0, L"Close", 0);
@@ -114,9 +118,9 @@ LOGICAL DllMain(
             PH_SETTING_CREATE settings[] =
             {
                 { IntegerPairSettingType, SETTING_NAME_TRACERT_WINDOW_POSITION, L"0,0" },
-                { IntegerPairSettingType, SETTING_NAME_TRACERT_WINDOW_SIZE, L"600,365" },
+                { ScalableIntegerPairSettingType, SETTING_NAME_TRACERT_WINDOW_SIZE, L"@96|600,365" },
                 { IntegerPairSettingType, SETTING_NAME_PING_WINDOW_POSITION, L"0,0" },
-                { IntegerPairSettingType, SETTING_NAME_PING_WINDOW_SIZE, L"420,250" },
+                { ScalableIntegerPairSettingType, SETTING_NAME_PING_WINDOW_SIZE, L"@96|420,250" },
                 { IntegerSettingType, SETTING_NAME_PING_TIMEOUT, L"3e8" } // 1000 timeout.
             };
 
@@ -128,7 +132,7 @@ LOGICAL DllMain(
             info->DisplayName = L"Network Tools";
             info->Author = L"dmex, wj32";
             info->Description = L"Provides ping, traceroute and whois for network connections.";
-            info->Url = L"http://processhacker.sf.net/forums/viewtopic.php?t=1117";
+            info->Url = L"https://wj32.org/processhacker/forums/viewtopic.php?t=1117";
             info->HasOptions = TRUE;
 
             PhRegisterCallback(
@@ -151,7 +155,7 @@ LOGICAL DllMain(
                 &NetworkMenuInitializingCallbackRegistration
                 );
 
-            PhAddSettings(settings, _countof(settings));
+            PhAddSettings(settings, ARRAYSIZE(settings));
         }
         break;
     }

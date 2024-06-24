@@ -20,14 +20,13 @@
 #define SI_MSG_SYSINFO_CHANGE_SETTINGS (WM_APP + 152)
 #define SI_MSG_SYSINFO_LAST (WM_APP + 152)
 
-// Misc.
-
-typedef HRESULT (WINAPI *_EnableThemeDialogTexture)(
-    _In_ HWND hwnd,
-    _In_ DWORD dwFlags
-    );
+#define SWP_NO_ACTIVATE_MOVE_SIZE_ZORDER (SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER)
+#define SWP_SHOWWINDOW_ONLY (SWP_NO_ACTIVATE_MOVE_SIZE_ZORDER | SWP_SHOWWINDOW)
+#define SWP_HIDEWINDOW_ONLY (SWP_NO_ACTIVATE_MOVE_SIZE_ZORDER | SWP_HIDEWINDOW)
 
 // Thread & window
+
+extern HWND PhSipWindow;
 
 NTSTATUS PhSipSysInfoThreadStart(
     _In_ PVOID Parameter
@@ -64,6 +63,12 @@ VOID PhSipOnNcDestroy(
 VOID PhSipOnShowWindow(
     _In_ BOOLEAN Showing,
     _In_ ULONG State
+    );
+
+BOOLEAN PhSipOnSysCommand(
+    _In_ ULONG Type,
+    _In_ LONG CursorScreenX,
+    _In_ LONG CursorScreenY
     );
 
 VOID PhSipOnSize(
@@ -173,6 +178,13 @@ VOID PhSipEnterSectionView(
     _In_ PPH_SYSINFO_SECTION NewSection
     );
 
+VOID PhSipEnterSectionViewInner(
+    _In_ PPH_SYSINFO_SECTION Section,
+    _In_ BOOLEAN FromSummaryView,
+    _Inout_ HDWP *DeferHandle,
+    _Inout_ HDWP *ContainerDeferHandle
+    );
+
 VOID PhSipRestoreSummaryView(
     VOID
     );
@@ -202,6 +214,10 @@ VOID PhSipUpdateThemeData(
     );
 
 VOID PhSipSetAlwaysOnTop(
+    VOID
+    );
+
+VOID PhSipSaveWindowState(
     VOID
     );
 

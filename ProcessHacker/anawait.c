@@ -34,7 +34,9 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
 #include <symprv.h>
+#include <hndlinfo.h>
 
 typedef HWND (WINAPI *_GetSendMessageReceiver)(
     _In_ HANDLE ThreadId
@@ -178,7 +180,7 @@ VOID PhUiAnalyzeWaitThread(
 
     if (context.Found)
     {
-        PhShowInformationDialog(hWnd, context.StringBuilder.String->Buffer);
+        PhShowInformationDialog(hWnd, context.StringBuilder.String->Buffer, 0);
     }
     else
     {
@@ -240,7 +242,7 @@ VOID PhpAnalyzeWaitPassive(
     }
     else if (lastSystemCall.SystemCallNumber == NumberForWfmo)
     {
-        PhAppendFormatStringBuilder(&stringBuilder, L"Thread is waiting for multiple (%u) objects.", (ULONG)lastSystemCall.FirstArgument);
+        PhAppendFormatStringBuilder(&stringBuilder, L"Thread is waiting for multiple (%u) objects.", PtrToUlong(lastSystemCall.FirstArgument));
     }
     else if (lastSystemCall.SystemCallNumber == NumberForRf)
     {
@@ -273,7 +275,7 @@ VOID PhpAnalyzeWaitPassive(
     if (stringBuilder.String->Length == 0)
         PhAppendStringBuilder2(&stringBuilder, L"Unable to determine why the thread is waiting.");
 
-    PhShowInformationDialog(hWnd, stringBuilder.String->Buffer);
+    PhShowInformationDialog(hWnd, stringBuilder.String->Buffer, 0);
 
     PhDeleteStringBuilder(&stringBuilder);
     NtClose(processHandle);
@@ -317,7 +319,7 @@ static BOOLEAN NTAPI PhpWalkThreadStackAnalyzeCallback(
         PhAppendFormatStringBuilder(
             &context->StringBuilder,
             L"Thread is sleeping. Timeout: %u milliseconds.",
-            (ULONG)StackFrame->Params[0]
+            PtrToUlong(StackFrame->Params[0])
             );
     }
     else if (NT_FUNC_MATCH("DelayExecution"))
@@ -326,7 +328,7 @@ static BOOLEAN NTAPI PhpWalkThreadStackAnalyzeCallback(
         PVOID timeoutAddress = StackFrame->Params[1];
         LARGE_INTEGER timeout;
 
-        if (NT_SUCCESS(PhReadVirtualMemory(
+        if (NT_SUCCESS(NtReadVirtualMemory(
             context->ProcessHandle,
             timeoutAddress,
             &timeout,
@@ -544,14 +546,14 @@ static BOOLEAN NTAPI PhpWalkThreadStackAnalyzeCallback(
         FUNC_MATCH("kernel32.dll!WaitForMultipleObjects")
         )
     {
-        ULONG numberOfHandles = (ULONG)StackFrame->Params[0];
+        ULONG numberOfHandles = PtrToUlong(StackFrame->Params[0]);
         PVOID addressOfHandles = StackFrame->Params[1];
         WAIT_TYPE waitType = (WAIT_TYPE)StackFrame->Params[2];
         BOOLEAN alertable = !!StackFrame->Params[3];
 
         if (numberOfHandles > MAXIMUM_WAIT_OBJECTS)
         {
-            numberOfHandles = (ULONG)context->PrevParams[1];
+            numberOfHandles = PtrToUlong(context->PrevParams[1]);
             addressOfHandles = context->PrevParams[2];
             waitType = (WAIT_TYPE)context->PrevParams[3];
             alertable = FALSE;
@@ -870,6 +872,8 @@ static PPH_STRING PhpaGetHandleString(
         NULL,
         &name
         );
+    PH_AUTO(typeName);
+    PH_AUTO(name);
 
     if (typeName && name)
     {
@@ -887,11 +891,6 @@ static PPH_STRING PhpaGetHandleString(
             Handle
             );
     }
-
-    if (typeName)
-        PhDereferenceObject(typeName);
-    if (name)
-        PhDereferenceObject(name);
 
     return result;
 }
@@ -919,7 +918,7 @@ static VOID PhpGetWfmoInformation(
         {
             ULONG handles32[MAXIMUM_WAIT_OBJECTS];
 
-            if (NT_SUCCESS(status = PhReadVirtualMemory(
+            if (NT_SUCCESS(status = NtReadVirtualMemory(
                 ProcessHandle,
                 AddressOfHandles,
                 handles32,
@@ -934,7 +933,7 @@ static VOID PhpGetWfmoInformation(
         else
         {
 #endif
-            status = PhReadVirtualMemory(
+            status = NtReadVirtualMemory(
                 ProcessHandle,
                 AddressOfHandles,
                 handles,
@@ -1010,12 +1009,12 @@ static PPH_STRING PhpaGetSendMessageReceiver(
 
     clientId.UniqueProcess = UlongToHandle(processId);
     clientId.UniqueThread = UlongToHandle(threadId);
-    clientIdName = PhAutoDereferenceObject(PhGetClientIdName(&clientId));
+    clientIdName = PH_AUTO(PhGetClientIdName(&clientId));
 
     if (!GetClassName(windowHandle, windowClass, sizeof(windowClass) / sizeof(WCHAR)))
         windowClass[0] = 0;
 
-    windowText = PhAutoDereferenceObject(PhGetWindowText(windowHandle));
+    windowText = PH_AUTO(PhGetWindowText(windowHandle));
 
     return PhaFormatString(L"Window 0x%Ix (%s): %s \"%s\"", windowHandle, clientIdName->Buffer, windowClass, PhGetStringOrEmpty(windowText));
 }
@@ -1063,7 +1062,7 @@ static PPH_STRING PhpaGetAlpcInformation(
 
         clientId.UniqueProcess = serverInfo->Out.ConnectedProcessId;
         clientId.UniqueThread = NULL;
-        clientIdName = PhAutoDereferenceObject(PhGetClientIdName(&clientId));
+        clientIdName = PH_AUTO(PhGetClientIdName(&clientId));
 
         string = PhaFormatString(L"ALPC Port: %.*s (%s)", serverInfo->Out.ConnectionPortName.Length / 2, serverInfo->Out.ConnectionPortName.Buffer, clientIdName->Buffer);
     }

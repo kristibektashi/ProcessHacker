@@ -20,8 +20,8 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define MAIN_PRIVATE
 #include <peview.h>
+#include <objbase.h>
 
 PPH_STRING PvFileName = NULL;
 
@@ -37,6 +37,19 @@ static BOOLEAN NTAPI PvCommandLineCallback(
     return TRUE;
 }
 
+static VOID PvpInitializeDpi(
+    VOID
+    )
+{
+    HDC hdc;
+
+    if (hdc = GetDC(NULL))
+    {
+        PhGlobalDpi = GetDeviceCaps(hdc, LOGPIXELSY);
+        ReleaseDC(NULL, hdc);
+    }
+}
+
 INT WINAPI wWinMain(
     _In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE hPrevInstance,
@@ -50,10 +63,11 @@ INT WINAPI wWinMain(
     };
     PH_STRINGREF commandLine;
 
-    if (!NT_SUCCESS(PhInitializePhLibEx(PHLIB_INIT_MODULE_WORK_QUEUE, 0, 0)))
+    if (!NT_SUCCESS(PhInitializePhLibEx(0, 0, 0)))
         return 1;
 
     PhGuiSupportInitialization();
+    PvpInitializeDpi();
 
     PhApplicationName = L"PE Viewer";
 
@@ -72,7 +86,7 @@ INT WINAPI wWinMain(
     {
         static PH_FILETYPE_FILTER filters[] =
         {
-            { L"Supported files (*.exe;*.dll;*.ocx;*.sys;*.scr;*.cpl;*.ax;*.acm;*.lib;*.winmd)", L"*.exe;*.dll;*.ocx;*.sys;*.scr;*.cpl;*.ax;*.acm;*.lib;*.winmd" },
+            { L"Supported files (*.exe;*.dll;*.ocx;*.sys;*.scr;*.cpl;*.ax;*.acm;*.lib;*.winmd;*.efi)", L"*.exe;*.dll;*.ocx;*.sys;*.scr;*.cpl;*.ax;*.acm;*.lib;*.winmd;*.efi" },
             { L"All files (*.*)", L"*.*" }
         };
         PVOID fileDialog;

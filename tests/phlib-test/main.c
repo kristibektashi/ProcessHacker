@@ -1,6 +1,6 @@
 #include "tests.h"
 
-int __cdecl main(int argc, char *argv[])
+int __cdecl wmain(int argc, wchar_t *argv[])
 {
     NTSTATUS status;
 
@@ -8,8 +8,9 @@ int __cdecl main(int argc, char *argv[])
     assert(NT_SUCCESS(status));
 
     Test_basesup();
+    Test_avltree();
     Test_format();
-    Test_support();
+    Test_util();
 
     return 0;
 }

@@ -1,6 +1,12 @@
 #ifndef PH_PROCPRPP_H
 #define PH_PROCPRPP_H
 
+#include <thrdlist.h>
+#include <modlist.h>
+#include <hndllist.h>
+#include <memlist.h>
+#include <memprv.h>
+
 typedef struct _PH_PROCESS_PROPSHEETCONTEXT
 {
     WNDPROC OldWndProc;
@@ -42,6 +48,46 @@ INT CALLBACK PhpStandardPropPageProc(
     _In_ LPPROPSHEETPAGE ppsp
     );
 
+FORCEINLINE BOOLEAN PhpPropPageDlgProcHeader(
+    _In_ HWND hwndDlg,
+    _In_ UINT uMsg,
+    _In_ LPARAM lParam,
+    _Out_ LPPROPSHEETPAGE *PropSheetPage,
+    _Out_ PPH_PROCESS_PROPPAGECONTEXT *PropPageContext,
+    _Out_ PPH_PROCESS_ITEM *ProcessItem
+    )
+{
+    LPPROPSHEETPAGE propSheetPage;
+    PPH_PROCESS_PROPPAGECONTEXT propPageContext;
+
+    if (uMsg == WM_INITDIALOG)
+    {
+        // Save the context.
+        SetProp(hwndDlg, PhMakeContextAtom(), (HANDLE)lParam);
+    }
+
+    propSheetPage = (LPPROPSHEETPAGE)GetProp(hwndDlg, PhMakeContextAtom());
+
+    if (!propSheetPage)
+        return FALSE;
+
+    *PropSheetPage = propSheetPage;
+    *PropPageContext = propPageContext = (PPH_PROCESS_PROPPAGECONTEXT)propSheetPage->lParam;
+    *ProcessItem = propPageContext->PropContext->ProcessItem;
+
+    return TRUE;
+}
+
+FORCEINLINE VOID PhpPropPageDlgProcDestroy(
+    _In_ HWND hwndDlg
+    )
+{
+    RemoveProp(hwndDlg, PhMakeContextAtom());
+}
+
+#define SET_BUTTON_ICON(Id, Icon) \
+    SendMessage(GetDlgItem(hwndDlg, (Id)), BM_SETIMAGE, IMAGE_ICON, (LPARAM)(Icon))
+
 INT_PTR CALLBACK PhpProcessGeneralDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
@@ -68,6 +114,12 @@ INT_PTR CALLBACK PhpProcessThreadsDlgProc(
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
     _In_ LPARAM lParam
+    );
+
+NTSTATUS NTAPI PhpOpenProcessTokenForPage(
+    _Out_ PHANDLE Handle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_opt_ PVOID Context
     );
 
 INT_PTR CALLBACK PhpProcessTokenHookProc(
@@ -98,36 +150,20 @@ INT_PTR CALLBACK PhpProcessEnvironmentDlgProc(
     _In_ LPARAM lParam
     );
 
-typedef struct _PH_HANDLE_ITEM_INFO
-{
-    HANDLE ProcessId;
-    HANDLE Handle;
-    PPH_STRING TypeName;
-    PPH_STRING BestObjectName;
-} PH_HANDLE_ITEM_INFO, *PPH_HANDLE_ITEM_INFO;
-
-#define PhaAppendCtrlEnter(Text, Enable) ((Enable) ? PhaConcatStrings2((Text), L"\tCtrl+Enter")->Buffer : (Text))
-
-VOID PhInsertHandleObjectPropertiesEMenuItems(
-    _In_ struct _PH_EMENU_ITEM *Menu,
-    _In_ ULONG InsertBeforeId,
-    _In_ BOOLEAN EnableShortcut,
-    _In_ PPH_HANDLE_ITEM_INFO Info
-    );
-
-#define PH_MAX_SECTION_EDIT_SIZE (32 * 1024 * 1024) // 32 MB
-
-VOID PhShowHandleObjectProperties1(
-    _In_ HWND hWnd,
-    _In_ PPH_HANDLE_ITEM_INFO Info
-    );
-
-VOID PhShowHandleObjectProperties2(
-    _In_ HWND hWnd,
-    _In_ PPH_HANDLE_ITEM_INFO Info
-    );
-
 INT_PTR CALLBACK PhpProcessHandlesDlgProc(
+    _In_ HWND hwndDlg,
+    _In_ UINT uMsg,
+    _In_ WPARAM wParam,
+    _In_ LPARAM lParam
+    );
+
+NTSTATUS NTAPI PhpOpenProcessJobForPage(
+    _Out_ PHANDLE Handle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_opt_ PVOID Context
+    );
+
+INT_PTR CALLBACK PhpProcessJobHookProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -141,11 +177,10 @@ INT_PTR CALLBACK PhpProcessServicesDlgProc(
     _In_ LPARAM lParam
     );
 
-#define WM_PH_THREAD_ADDED (WM_APP + 201)
-#define WM_PH_THREAD_MODIFIED (WM_APP + 202)
-#define WM_PH_THREAD_REMOVED (WM_APP + 203)
-#define WM_PH_THREADS_UPDATED (WM_APP + 204)
-#define WM_PH_THREAD_SELECTION_CHANGED (WM_APP + 205)
+extern PH_STRINGREF PhpLoadingText;
+
+#define WM_PH_THREADS_UPDATED (WM_APP + 200)
+#define WM_PH_THREAD_SELECTION_CHANGED (WM_APP + 201)
 
 // begin_phapppub
 typedef struct _PH_THREADS_CONTEXT
@@ -170,15 +205,12 @@ typedef struct _PH_THREADS_CONTEXT
             HWND TreeNewHandle; // phapppub
         } PublicUse;
     };
-    BOOLEAN NeedsRedraw;
+    PH_PROVIDER_EVENT_QUEUE EventQueue;
 // begin_phapppub
 } PH_THREADS_CONTEXT, *PPH_THREADS_CONTEXT;
 // end_phapppub
 
-#define WM_PH_MODULE_ADDED (WM_APP + 211)
-#define WM_PH_MODULE_MODIFIED (WM_APP + 212)
-#define WM_PH_MODULE_REMOVED (WM_APP + 213)
-#define WM_PH_MODULES_UPDATED (WM_APP + 214)
+#define WM_PH_MODULES_UPDATED (WM_APP + 210)
 
 // begin_phapppub
 typedef struct _PH_MODULES_CONTEXT
@@ -202,17 +234,14 @@ typedef struct _PH_MODULES_CONTEXT
             HWND TreeNewHandle; // phapppub
         } PublicUse;
     };
-    BOOLEAN NeedsRedraw;
+    PH_PROVIDER_EVENT_QUEUE EventQueue;
     NTSTATUS LastRunStatus;
     PPH_STRING ErrorMessage;
 // begin_phapppub
 } PH_MODULES_CONTEXT, *PPH_MODULES_CONTEXT;
 // end_phapppub
 
-#define WM_PH_HANDLE_ADDED (WM_APP + 221)
-#define WM_PH_HANDLE_MODIFIED (WM_APP + 222)
-#define WM_PH_HANDLE_REMOVED (WM_APP + 223)
-#define WM_PH_HANDLES_UPDATED (WM_APP + 224)
+#define WM_PH_HANDLES_UPDATED (WM_APP + 220)
 
 // begin_phapppub
 typedef struct _PH_HANDLES_CONTEXT
@@ -236,7 +265,7 @@ typedef struct _PH_HANDLES_CONTEXT
             HWND TreeNewHandle; // phapppub
         } PublicUse;
     };
-    BOOLEAN NeedsRedraw;
+    PH_PROVIDER_EVENT_QUEUE EventQueue;
     BOOLEAN SelectedHandleProtected;
     BOOLEAN SelectedHandleInherit;
     NTSTATUS LastRunStatus;
@@ -296,5 +325,17 @@ typedef struct _PH_PERFORMANCE_CONTEXT
     HWND PrivateGraphHandle;
     HWND IoGraphHandle;
 } PH_PERFORMANCE_CONTEXT, *PPH_PERFORMANCE_CONTEXT;
+
+typedef struct _PH_ENVIRONMENT_ITEM
+{
+    PPH_STRING Name;
+    PPH_STRING Value;
+} PH_ENVIRONMENT_ITEM, *PPH_ENVIRONMENT_ITEM;
+
+typedef struct _PH_ENVIRONMENT_CONTEXT
+{
+    HWND ListViewHandle;
+    PH_ARRAY Items;
+} PH_ENVIRONMENT_CONTEXT, *PPH_ENVIRONMENT_CONTEXT;
 
 #endif

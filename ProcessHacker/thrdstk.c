@@ -2,7 +2,7 @@
  * Process Hacker -
  *   thread stack viewer
  *
- * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,6 +21,7 @@
  */
 
 #include <phapp.h>
+#include <thrdprv.h>
 #include <kphuser.h>
 #include <symprv.h>
 #include <settings.h>
@@ -107,7 +108,7 @@ VOID PhShowThreadStackDialog(
 
     if (!NT_SUCCESS(status = PhOpenThread(
         &threadHandle,
-        ThreadQueryAccess | THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME,
+        THREAD_QUERY_INFORMATION | THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME,
         ThreadId
         )))
     {
@@ -168,7 +169,7 @@ static INT_PTR CALLBACK PhpThreadStackDlgProc(
             threadStackContext = (PTHREAD_STACK_CONTEXT)lParam;
             SetProp(hwndDlg, PhMakeContextAtom(), (HANDLE)threadStackContext);
 
-            title = PhFormatString(L"Stack - thread %u", (ULONG)threadStackContext->ThreadId);
+            title = PhFormatString(L"Stack - thread %u", HandleToUlong(threadStackContext->ThreadId));
             SetWindowText(hwndDlg, title->Buffer);
             PhDereferenceObject(title);
 
@@ -538,10 +539,13 @@ static NTSTATUS PhpRefreshThreadStackThreadStart(
     _In_ PVOID Parameter
     )
 {
+    PH_AUTO_POOL autoPool;
     NTSTATUS status;
     PTHREAD_STACK_CONTEXT threadStackContext = Parameter;
     CLIENT_ID clientId;
     BOOLEAN defaultWalk;
+
+    PhInitializeAutoPool(&autoPool);
 
     PhLoadSymbolsThreadProvider(threadStackContext->ThreadProvider);
 
@@ -603,6 +607,8 @@ static NTSTATUS PhpRefreshThreadStackThreadStart(
 
     threadStackContext->WalkStatus = status;
     PostMessage(threadStackContext->ProgressWindowHandle, WM_PH_COMPLETED, 0, 0);
+
+    PhDeleteAutoPool(&autoPool);
 
     return STATUS_SUCCESS;
 }

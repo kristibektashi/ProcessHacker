@@ -21,7 +21,14 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
+#include <actions.h>
+
+#pragma warning(push)
+#pragma warning(disable: 4091) // Ignore 'no variable declared on typedef'
 #include <dbghelp.h>
+#pragma warning(pop)
+
 #include <symprv.h>
 #include <settings.h>
 #include <phsvccl.h>
@@ -87,7 +94,7 @@ BOOLEAN PhUiCreateDumpFileProcess(
         return FALSE;
     }
 
-    fileName = PhAutoDereferenceObject(PhGetFileDialogFileName(fileDialog));
+    fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
     PhFreeFileDialog(fileDialog);
 
     return PhpCreateProcessMiniDumpWithProgress(

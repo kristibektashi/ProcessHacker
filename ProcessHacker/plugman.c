@@ -164,9 +164,7 @@ BOOLEAN PhpIsPluginLoadedByBaseName(
     // Extremely inefficient code follows.
     // TODO: Make this better.
 
-    links = PhMinimumElementAvlTree(&PhPluginsByName);
-
-    while (links)
+    for (links = PhMinimumElementAvlTree(&PhPluginsByName); links; links = PhSuccessorElementAvlTree(links))
     {
         PPH_PLUGIN plugin = CONTAINING_RECORD(links, PH_PLUGIN, Links);
         PH_STRINGREF pluginBaseName;
@@ -175,8 +173,6 @@ BOOLEAN PhpIsPluginLoadedByBaseName(
 
         if (PhEqualStringRef(&pluginBaseName, BaseName, TRUE))
             return TRUE;
-
-        links = PhSuccessorElementAvlTree(links);
     }
 
     return FALSE;
@@ -297,38 +293,33 @@ INT_PTR CALLBACK PhpPluginsDlgProc(
         {
             PPH_AVL_LINKS links;
 
+            PhCenterWindow(hwndDlg, PhMainWndHandle);
+
             PluginsLv = GetDlgItem(hwndDlg, IDC_LIST);
             PhSetListViewStyle(PluginsLv, FALSE, TRUE);
             PhSetControlTheme(PluginsLv, L"explorer");
-            PhAddListViewColumn(PluginsLv, 0, 0, 0, LVCFMT_LEFT, 100, L"File");
-            PhAddListViewColumn(PluginsLv, 1, 1, 1, LVCFMT_LEFT, 150, L"Name");
-            PhAddListViewColumn(PluginsLv, 2, 2, 2, LVCFMT_LEFT, 100, L"Author");
+            PhAddListViewColumn(PluginsLv, 0, 0, 0, LVCFMT_LEFT, 280, L"Name");
+            PhAddListViewColumn(PluginsLv, 1, 1, 1, LVCFMT_LEFT, 100, L"Author");
             PhSetExtendedListView(PluginsLv);
             ExtendedListView_SetItemColorFunction(PluginsLv, PhpPluginColorFunction);
 
             DisabledPluginLookup = PhCreateSimpleHashtable(10);
 
-            links = PhMinimumElementAvlTree(&PhPluginsByName);
-
-            while (links)
+            for (links = PhMinimumElementAvlTree(&PhPluginsByName); links; links = PhSuccessorElementAvlTree(links))
             {
                 PPH_PLUGIN plugin = CONTAINING_RECORD(links, PH_PLUGIN, Links);
                 INT lvItemIndex;
                 PH_STRINGREF baseNameSr;
 
-                lvItemIndex = PhAddListViewItem(PluginsLv, MAXINT, PhpGetPluginBaseName(plugin), plugin);
-
-                PhSetListViewSubItem(PluginsLv, lvItemIndex, 1, plugin->Information.DisplayName ? plugin->Information.DisplayName : plugin->Name.Buffer);
+                lvItemIndex = PhAddListViewItem(PluginsLv, MAXINT, plugin->Information.DisplayName ? plugin->Information.DisplayName : plugin->Name.Buffer, plugin);
 
                 if (plugin->Information.Author)
-                    PhSetListViewSubItem(PluginsLv, lvItemIndex, 2, plugin->Information.Author);
+                    PhSetListViewSubItem(PluginsLv, lvItemIndex, 1, plugin->Information.Author);
 
                 PhInitializeStringRefLongHint(&baseNameSr, PhpGetPluginBaseName(plugin));
 
                 if (PhIsPluginDisabled(&baseNameSr))
                     PhAddItemSimpleHashtable(DisabledPluginLookup, plugin, NULL);
-
-                links = PhSuccessorElementAvlTree(links);
             }
 
             DisabledPluginInstances = PhCreateList(10);

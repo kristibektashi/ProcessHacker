@@ -6,6 +6,8 @@
 #define PH_FLUSH_PROCESS_QUERY_DATA_INTERVAL_LONG_TERM 1000
 
 #define TIMER_FLUSH_PROCESS_QUERY_DATA 1
+#define TIMER_ICON_CLICK_ACTIVATE 2
+#define TIMER_ICON_RESTORE_HOVER 3
 
 LRESULT CALLBACK PhMwpWndProc(
     _In_ HWND hWnd,
@@ -185,7 +187,7 @@ VOID PhMwpSaveSettings(
     VOID
     );
 
-VOID PhMwpSaveWindowSettings(
+VOID PhMwpSaveWindowState(
     VOID
     );
 
@@ -389,7 +391,7 @@ VOID PhMwpOnServiceAdded(
     );
 
 VOID PhMwpOnServiceModified(
-    _In_ PPH_SERVICE_MODIFIED_DATA ServiceModifiedData
+    _In_ struct _PH_SERVICE_MODIFIED_DATA *ServiceModifiedData
     );
 
 VOID PhMwpOnServiceRemoved(

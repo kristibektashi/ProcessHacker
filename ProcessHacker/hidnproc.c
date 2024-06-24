@@ -41,8 +41,10 @@
 
 #include <phapp.h>
 #include <kphuser.h>
+#include <procprv.h>
 #include <settings.h>
 #include <hidnproc.h>
+#include <shellapi.h>
 #include <windowsx.h>
 
 INT_PTR CALLBACK PhpHiddenProcessesDlgProc(
@@ -161,9 +163,9 @@ static INT_PTR CALLBACK PhpHiddenProcessesDlgProc(
             ExtendedListView_AddFallbackColumn(lvHandle, 1);
             ExtendedListView_SetItemColorFunction(lvHandle, PhpHiddenProcessesColorFunction);
 
-            ComboBox_AddString(GetDlgItem(hwndDlg, IDC_METHOD), L"Brute Force");
-            ComboBox_AddString(GetDlgItem(hwndDlg, IDC_METHOD), L"CSR Handles");
-            PhSelectComboBoxString(GetDlgItem(hwndDlg, IDC_METHOD), L"CSR Handles", FALSE);
+            ComboBox_AddString(GetDlgItem(hwndDlg, IDC_METHOD), L"Brute force");
+            ComboBox_AddString(GetDlgItem(hwndDlg, IDC_METHOD), L"CSR handles");
+            PhSelectComboBoxString(GetDlgItem(hwndDlg, IDC_METHOD), L"CSR handles", FALSE);
 
             EnableWindow(GetDlgItem(hwndDlg, IDC_TERMINATE), FALSE);
         }
@@ -196,8 +198,7 @@ static INT_PTR CALLBACK PhpHiddenProcessesDlgProc(
                     NTSTATUS status;
                     PPH_STRING method;
 
-                    method = PhGetWindowText(GetDlgItem(hwndDlg, IDC_METHOD));
-                    PhAutoDereferenceObject(method);
+                    method = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_METHOD)));
 
                     if (ProcessesList)
                     {
@@ -221,7 +222,7 @@ static INT_PTR CALLBACK PhpHiddenProcessesDlgProc(
                     ProcessesList = PhCreateList(40);
 
                     ProcessesMethod =
-                        PhEqualString2(method, L"Brute Force", TRUE) ?
+                        PhEqualString2(method, L"Brute force", TRUE) ?
                         BruteForceScanMethod :
                         CsrHandlesScanMethod;
                     NumberOfHiddenProcesses = 0;
@@ -345,8 +346,7 @@ static INT_PTR CALLBACK PhpHiddenProcessesDlgProc(
                         PPH_STRING fileName;
                         PPH_FILE_STREAM fileStream;
 
-                        fileName = PhGetFileDialogFileName(fileDialog);
-                        PhAutoDereferenceObject(fileName);
+                        fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
 
                         if (NT_SUCCESS(status = PhCreateFileStream(
                             &fileStream,
@@ -388,7 +388,7 @@ static INT_PTR CALLBACK PhpHiddenProcessesDlgProc(
                                         fileStream,
                                         L"%s (%u)\r\n",
                                         entry->FileName->Buffer,
-                                        (ULONG)entry->ProcessId
+                                        HandleToUlong(entry->ProcessId)
                                         );
                                 }
                             }
@@ -523,7 +523,7 @@ static BOOLEAN NTAPI PhpHiddenProcessesCallback(
 
     lvItemIndex = PhAddListViewItem(PhHiddenProcessesListViewHandle, MAXINT,
         PhGetStringOrDefault(entry->FileName, L"(unknown)"), entry);
-    PhPrintUInt32(pidString, (ULONG)entry->ProcessId);
+    PhPrintUInt32(pidString, HandleToUlong(entry->ProcessId));
     PhSetListViewSubItem(PhHiddenProcessesListViewHandle, lvItemIndex, 1, pidString);
 
     if (entry->Type == HiddenProcess)
@@ -618,7 +618,7 @@ static PPH_PROCESS_ITEM PhpCreateProcessItemForHiddenProcess(
 
         PhGetProcessSessionId(processHandle, &processItem->SessionId);
 
-        PhPrintUInt32(processItem->ParentProcessIdString, (ULONG)processItem->ParentProcessId);
+        PhPrintUInt32(processItem->ParentProcessIdString, HandleToUlong(processItem->ParentProcessId));
         PhPrintUInt32(processItem->SessionIdString, processItem->SessionId);
 
         if (NT_SUCCESS(PhGetProcessTimes(processHandle, &times)))
@@ -687,12 +687,12 @@ static PPH_PROCESS_ITEM PhpCreateProcessItemForHiddenProcess(
             }
 
             PhGetStockApplicationIcon(&processItem->SmallIcon, &processItem->LargeIcon);
-            processItem->SmallIcon = DuplicateIcon(NULL, processItem->SmallIcon);
-            processItem->LargeIcon = DuplicateIcon(NULL, processItem->LargeIcon);
+            processItem->SmallIcon = CopyIcon(processItem->SmallIcon);
+            processItem->LargeIcon = CopyIcon(processItem->LargeIcon);
         }
     }
 
-    // POSIX, command line
+    // Command line
 
     status = PhOpenProcess(
         &processHandle2,
@@ -702,33 +702,19 @@ static PPH_PROCESS_ITEM PhpCreateProcessItemForHiddenProcess(
 
     if (NT_SUCCESS(status))
     {
-        BOOLEAN isPosix = FALSE;
         PPH_STRING commandLine;
         ULONG i;
 
-        status = PhGetProcessIsPosix(processHandle2, &isPosix);
-        processItem->IsPosix = isPosix;
-
-        if (!NT_SUCCESS(status) || !isPosix)
+        if (NT_SUCCESS(status = PhGetProcessCommandLine(processHandle2, &commandLine)))
         {
-            status = PhGetProcessCommandLine(processHandle2, &commandLine);
-
-            if (NT_SUCCESS(status))
+            // Some command lines (e.g. from taskeng.exe) have nulls in them.
+            // Since Windows can't display them, we'll replace them with
+            // spaces.
+            for (i = 0; i < (ULONG)commandLine->Length / 2; i++)
             {
-                // Some command lines (e.g. from taskeng.exe) have nulls in them.
-                // Since Windows can't display them, we'll replace them with
-                // spaces.
-                for (i = 0; i < (ULONG)commandLine->Length / 2; i++)
-                {
-                    if (commandLine->Buffer[i] == 0)
-                        commandLine->Buffer[i] = ' ';
-                }
+                if (commandLine->Buffer[i] == 0)
+                    commandLine->Buffer[i] = ' ';
             }
-        }
-        else
-        {
-            // Get the POSIX command line.
-            status = PhGetProcessPosixCommandLine(processHandle2, &commandLine);
         }
 
         if (NT_SUCCESS(status))
@@ -783,12 +769,12 @@ NTSTATUS PhpEnumHiddenProcessesBruteForce(
         status2 = PhOpenProcess(
             &processHandle,
             ProcessQueryAccess,
-            (HANDLE)pid
+            UlongToHandle(pid)
             );
 
         if (NT_SUCCESS(status2))
         {
-            entry.ProcessId = (HANDLE)pid;
+            entry.ProcessId = UlongToHandle(pid);
 
             if (NT_SUCCESS(status2 = PhGetProcessTimes(
                 processHandle,
@@ -804,7 +790,7 @@ NTSTATUS PhpEnumHiddenProcessesBruteForce(
 
                 if (times.ExitTime.QuadPart != 0)
                     entry.Type = TerminatedProcess;
-                else if (PhFindItemList(pids, (HANDLE)pid) != -1)
+                else if (PhFindItemList(pids, UlongToHandle(pid)) != -1)
                     entry.Type = NormalProcess;
                 else
                     entry.Type = HiddenProcess;
@@ -821,13 +807,13 @@ NTSTATUS PhpEnumHiddenProcessesBruteForce(
         // Use an alternative method if we don't have sufficient access.
         if (status2 == STATUS_ACCESS_DENIED && WindowsVersion >= WINDOWS_VISTA)
         {
-            if (NT_SUCCESS(status2 = PhGetProcessImageFileNameByProcessId((HANDLE)pid, &fileName)))
+            if (NT_SUCCESS(status2 = PhGetProcessImageFileNameByProcessId(UlongToHandle(pid), &fileName)))
             {
-                entry.ProcessId = (HANDLE)pid;
+                entry.ProcessId = UlongToHandle(pid);
                 entry.FileName = PhGetFileName(fileName);
                 PhDereferenceObject(fileName);
 
-                if (PhFindItemList(pids, (HANDLE)pid) != -1)
+                if (PhFindItemList(pids, UlongToHandle(pid)) != -1)
                     entry.Type = NormalProcess;
                 else
                     entry.Type = HiddenProcess;
@@ -844,7 +830,7 @@ NTSTATUS PhpEnumHiddenProcessesBruteForce(
 
         if (!NT_SUCCESS(status2))
         {
-            entry.ProcessId = (HANDLE)pid;
+            entry.ProcessId = UlongToHandle(pid);
             entry.FileName = NULL;
             entry.Type = UnknownProcess;
 
@@ -1171,7 +1157,7 @@ NTSTATUS PhOpenProcessByCsrHandle(
 
     if (!Handle->IsThreadHandle)
     {
-        status = PhDuplicateObject(
+        status = NtDuplicateObject(
             Handle->CsrProcessHandle,
             Handle->Handle,
             NtCurrentProcess(),
@@ -1185,7 +1171,7 @@ NTSTATUS PhOpenProcessByCsrHandle(
     {
         HANDLE threadHandle;
 
-        if (!NT_SUCCESS(status = PhDuplicateObject(
+        if (!NT_SUCCESS(status = NtDuplicateObject(
             Handle->CsrProcessHandle,
             Handle->Handle,
             NtCurrentProcess(),

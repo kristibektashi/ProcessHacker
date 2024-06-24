@@ -2,7 +2,7 @@
  * Process Hacker -
  *   application support functions
  *
- * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -26,10 +26,18 @@
 #include <cpysave.h>
 #include <phappres.h>
 #include <emenu.h>
+#include <svcsup.h>
+#include <actions.h>
 #include <phsvccl.h>
 #include "mxml/mxml.h"
+#include "pcre/pcre2.h"
 #include <winsta.h>
+
+#pragma warning(push)
+#pragma warning(disable: 4091) // Ignore 'no variable declared on typedef'
 #include <dbghelp.h>
+#pragma warning(pop)
+
 #include <appmodel.h>
 
 typedef LONG (WINAPI *_GetPackageFullName)(
@@ -57,6 +65,7 @@ GUID VISTA_CONTEXT_GUID = { 0xe2011457, 0x1546, 0x43c5, { 0xa5, 0xfe, 0x00, 0x8d
 GUID WIN7_CONTEXT_GUID = { 0x35138b9a, 0x5d96, 0x4fbd, { 0x8e, 0x2d, 0xa2, 0x44, 0x02, 0x25, 0xf9, 0x3a } };
 GUID WIN8_CONTEXT_GUID = { 0x4a2f28e3, 0x53b9, 0x4441, { 0xba, 0x9c, 0xd6, 0x9d, 0x4a, 0x4a, 0x6e, 0x38 } };
 GUID WINBLUE_CONTEXT_GUID = { 0x1f676c76, 0x80e1, 0x4239, { 0x95, 0xbb, 0x83, 0xd0, 0xf6, 0xd0, 0xda, 0x78 } };
+GUID WINTHRESHOLD_CONTEXT_GUID = { 0x8e0f7a12, 0xbfb3, 0x4fe8, { 0xb9, 0xa5, 0x48, 0xfd, 0x50, 0xa1, 0x5a, 0x9a } };
 
 /**
  * Determines whether a process is suspended.
@@ -104,13 +113,14 @@ NTSTATUS PhGetProcessSwitchContext(
 
     // Reverse-engineered from WdcGetProcessSwitchContext (wdc.dll).
     // On Windows 8, the function is now SdbGetAppCompatData (apphelp.dll).
+    // On Windows 10, the function is again WdcGetProcessSwitchContext.
 
 #ifdef _WIN64
     if (NT_SUCCESS(PhGetProcessPeb32(ProcessHandle, &peb32)) && peb32)
     {
         if (WindowsVersion >= WINDOWS_8)
         {
-            if (!NT_SUCCESS(status = PhReadVirtualMemory(
+            if (!NT_SUCCESS(status = NtReadVirtualMemory(
                 ProcessHandle,
                 PTR_ADD_OFFSET(peb32, FIELD_OFFSET(PEB32, pShimData)),
                 &data32,
@@ -121,7 +131,7 @@ NTSTATUS PhGetProcessSwitchContext(
         }
         else
         {
-            if (!NT_SUCCESS(status = PhReadVirtualMemory(
+            if (!NT_SUCCESS(status = NtReadVirtualMemory(
                 ProcessHandle,
                 PTR_ADD_OFFSET(peb32, FIELD_OFFSET(PEB32, pContextData)),
                 &data32,
@@ -141,7 +151,7 @@ NTSTATUS PhGetProcessSwitchContext(
 
         if (WindowsVersion >= WINDOWS_8)
         {
-            if (!NT_SUCCESS(status = PhReadVirtualMemory(
+            if (!NT_SUCCESS(status = NtReadVirtualMemory(
                 ProcessHandle,
                 PTR_ADD_OFFSET(basicInfo.PebBaseAddress, FIELD_OFFSET(PEB, pShimData)),
                 &data,
@@ -152,7 +162,7 @@ NTSTATUS PhGetProcessSwitchContext(
         }
         else
         {
-            if (!NT_SUCCESS(status = PhReadVirtualMemory(
+            if (!NT_SUCCESS(status = NtReadVirtualMemory(
                 ProcessHandle,
                 PTR_ADD_OFFSET(basicInfo.PebBaseAddress, FIELD_OFFSET(PEB, pContextData)),
                 &data,
@@ -168,9 +178,20 @@ NTSTATUS PhGetProcessSwitchContext(
     if (!data)
         return STATUS_UNSUCCESSFUL; // no compatibility context data
 
-    if (WindowsVersion >= WINDOWS_8_1)
+    if (WindowsVersion >= WINDOWS_10)
     {
-        if (!NT_SUCCESS(status = PhReadVirtualMemory(
+        if (!NT_SUCCESS(status = NtReadVirtualMemory(
+            ProcessHandle,
+            PTR_ADD_OFFSET(data, 2040 + 24), // Magic value from SbReadProcContextByHandle
+            Guid,
+            sizeof(GUID),
+            NULL
+            )))
+            return status;
+    }
+    else if (WindowsVersion >= WINDOWS_8_1)
+    {
+        if (!NT_SUCCESS(status = NtReadVirtualMemory(
             ProcessHandle,
             PTR_ADD_OFFSET(data, 2040 + 16), // Magic value from SbReadProcContextByHandle
             Guid,
@@ -181,7 +202,7 @@ NTSTATUS PhGetProcessSwitchContext(
     }
     else if (WindowsVersion >= WINDOWS_8)
     {
-        if (!NT_SUCCESS(status = PhReadVirtualMemory(
+        if (!NT_SUCCESS(status = NtReadVirtualMemory(
             ProcessHandle,
             PTR_ADD_OFFSET(data, 2040), // Magic value from SbReadProcContextByHandle
             Guid,
@@ -192,7 +213,7 @@ NTSTATUS PhGetProcessSwitchContext(
     }
     else
     {
-        if (!NT_SUCCESS(status = PhReadVirtualMemory(
+        if (!NT_SUCCESS(status = NtReadVirtualMemory(
             ProcessHandle,
             PTR_ADD_OFFSET(data, 32), // Magic value from WdcGetProcessSwitchContext
             Guid,
@@ -425,6 +446,8 @@ NTSTATUS PhGetProcessKnownType(
                 knownProcessType = TaskHostProcessType;
             else if (PhEqualStringRef2(&name, L"\\taskhostex.exe", TRUE))
                 knownProcessType = TaskHostProcessType;
+            else if (PhEqualStringRef2(&name, L"\\taskhostw.exe", TRUE))
+                knownProcessType = TaskHostProcessType;
             else if (PhEqualStringRef2(&name, L"\\wudfhost.exe", TRUE))
                 knownProcessType = UmdfHostProcessType;
         }
@@ -488,7 +511,7 @@ BOOLEAN PhaGetProcessKnownCommandLine(
 
             if (KnownCommandLine->ServiceHost.GroupName)
             {
-                PhAutoDereferenceObject(KnownCommandLine->ServiceHost.GroupName);
+                PH_AUTO(KnownCommandLine->ServiceHost.GroupName);
                 return TRUE;
             }
             else
@@ -528,15 +551,15 @@ BOOLEAN PhaGetProcessKnownCommandLine(
             if (!dllName)
                 return FALSE;
 
-            PhAutoDereferenceObject(dllName);
+            PH_AUTO(dllName);
 
             // The procedure name begins after the last comma.
 
             if (!PhSplitStringRefAtLastChar(&dllName->sr, ',', &dllNamePart, &procedureNamePart))
                 return FALSE;
 
-            dllName = PhAutoDereferenceObject(PhCreateString2(&dllNamePart));
-            procedureName = PhAutoDereferenceObject(PhCreateString2(&procedureNamePart));
+            dllName = PH_AUTO(PhCreateString2(&dllNamePart));
+            procedureName = PH_AUTO(PhCreateString2(&procedureNamePart));
 
             // If the DLL name isn't an absolute path, assume it's in system32.
             // TODO: Use a proper search function.
@@ -545,7 +568,7 @@ BOOLEAN PhaGetProcessKnownCommandLine(
             {
                 dllName = PhaConcatStrings(
                     3,
-                    ((PPH_STRING)PhAutoDereferenceObject(PhGetSystemDirectory()))->Buffer,
+                    PH_AUTO_T(PH_STRING, PhGetSystemDirectory())->Buffer,
                     L"\\",
                     dllName->Buffer
                     );
@@ -567,7 +590,7 @@ BOOLEAN PhaGetProcessKnownCommandLine(
             PPH_STRING guidString;
             UNICODE_STRING guidStringUs;
             GUID guid;
-            HANDLE clsidKeyHandle;
+            HANDLE rootKeyHandle;
             HANDLE inprocServer32KeyHandle;
             PPH_STRING fileName;
 
@@ -592,11 +615,11 @@ BOOLEAN PhaGetProcessKnownCommandLine(
             if (!argPart)
                 return FALSE;
 
-            PhAutoDereferenceObject(argPart);
+            PH_AUTO(argPart);
 
             // Find "/processid:"; the GUID is just after that.
 
-            PhUpperString(argPart);
+            _wcsupr(argPart->Buffer);
             indexOfProcessId = PhFindStringInString(argPart, 0, L"/PROCESSID:");
 
             if (indexOfProcessId == -1)
@@ -622,7 +645,7 @@ BOOLEAN PhaGetProcessKnownCommandLine(
             // Lookup the GUID in the registry to determine the name and file name.
 
             if (NT_SUCCESS(PhOpenKey(
-                &clsidKeyHandle,
+                &rootKeyHandle,
                 KEY_READ,
                 PH_KEY_CLASSES_ROOT,
                 &PhaConcatStrings2(L"CLSID\\", guidString->Buffer)->sr,
@@ -630,20 +653,20 @@ BOOLEAN PhaGetProcessKnownCommandLine(
                 )))
             {
                 KnownCommandLine->ComSurrogate.Name =
-                    PhAutoDereferenceObject(PhQueryRegistryString(clsidKeyHandle, NULL));
+                    PH_AUTO(PhQueryRegistryString(rootKeyHandle, NULL));
 
                 if (NT_SUCCESS(PhOpenKey(
                     &inprocServer32KeyHandle,
                     KEY_READ,
-                    clsidKeyHandle,
+                    rootKeyHandle,
                     &inprocServer32Name,
                     0
                     )))
                 {
                     KnownCommandLine->ComSurrogate.FileName =
-                        PhAutoDereferenceObject(PhQueryRegistryString(inprocServer32KeyHandle, NULL));
+                        PH_AUTO(PhQueryRegistryString(inprocServer32KeyHandle, NULL));
 
-                    if (fileName = PhAutoDereferenceObject(PhExpandEnvironmentStrings(
+                    if (fileName = PH_AUTO(PhExpandEnvironmentStrings(
                         &KnownCommandLine->ComSurrogate.FileName->sr
                         )))
                     {
@@ -653,7 +676,19 @@ BOOLEAN PhaGetProcessKnownCommandLine(
                     NtClose(inprocServer32KeyHandle);
                 }
 
-                NtClose(clsidKeyHandle);
+                NtClose(rootKeyHandle);
+            }
+            else if (NT_SUCCESS(PhOpenKey(
+                &rootKeyHandle,
+                KEY_READ,
+                PH_KEY_CLASSES_ROOT,
+                &PhaConcatStrings2(L"AppID\\", guidString->Buffer)->sr,
+                0
+                )))
+            {
+                KnownCommandLine->ComSurrogate.Name =
+                    PH_AUTO(PhQueryRegistryString(rootKeyHandle, NULL));
+                NtClose(rootKeyHandle);
             }
         }
         break;
@@ -903,43 +938,31 @@ VOID PhShellExecuteUserString(
     PH_STRINGREF stringBefore;
     PH_STRINGREF stringMiddle;
     PH_STRINGREF stringAfter;
-    PPH_STRING newString;
     PPH_STRING ntMessage;
 
     executeString = PhGetStringSetting(Setting);
 
-    // Make sure the user executable string is absolute.
-    // We can't use RtlDetermineDosPathNameType_U here because the string
-    // may be a URL.
+    // Make sure the user executable string is absolute. We can't use RtlDetermineDosPathNameType_U
+    // here because the string may be a URL.
     if (PhFindCharInString(executeString, 0, ':') == -1)
-    {
-        newString = PhConcatStringRef2(&PhApplicationDirectory->sr, &executeString->sr);
-        PhDereferenceObject(executeString);
-        executeString = newString;
-    }
+        PhMoveReference(&executeString, PhConcatStringRef2(&PhApplicationDirectory->sr, &executeString->sr));
 
-    // Replace "%s" with the string, or use the original string if "%s" is not present.
+    // Replace the token with the string, or use the original string if the token is not present.
     if (PhSplitStringRefAtString(&executeString->sr, &replacementToken, FALSE, &stringBefore, &stringAfter))
     {
         PhInitializeStringRef(&stringMiddle, String);
-        newString = PhConcatStringRef3(&stringBefore, &stringMiddle, &stringAfter);
+        PhMoveReference(&executeString, PhConcatStringRef3(&stringBefore, &stringMiddle, &stringAfter));
     }
-    else
-    {
-        PhSetReference(&newString, executeString);
-    }
-
-    PhDereferenceObject(executeString);
 
     if (UseShellExecute)
     {
-        PhShellExecute(hWnd, newString->Buffer, NULL);
+        PhShellExecute(hWnd, executeString->Buffer, NULL);
     }
     else
     {
         NTSTATUS status;
 
-        status = PhCreateProcessWin32(NULL, newString->Buffer, NULL, NULL, 0, NULL, NULL, NULL);
+        status = PhCreateProcessWin32(NULL, executeString->Buffer, NULL, NULL, 0, NULL, NULL, NULL);
 
         if (!NT_SUCCESS(status))
         {
@@ -956,7 +979,7 @@ VOID PhShellExecuteUserString(
         }
     }
 
-    PhDereferenceObject(newString);
+    PhDereferenceObject(executeString);
 }
 
 VOID PhLoadSymbolProviderOptions(
@@ -1175,12 +1198,8 @@ VOID PhLoadWindowPlacementFromSetting(
         RECT rectForAdjust;
 
         windowRectangle.Position = PhGetIntegerPairSetting(PositionSettingName);
-        windowRectangle.Size = PhGetIntegerPairSetting(SizeSettingName);
-
-        PhAdjustRectangleToWorkingArea(
-            WindowHandle,
-            &windowRectangle
-            );
+        windowRectangle.Size = PhGetScalableIntegerPairSetting(SizeSettingName, TRUE).Pair;
+        PhAdjustRectangleToWorkingArea(NULL, &windowRectangle);
 
         // Let the window adjust for the minimum size if needed.
         rectForAdjust = PhRectangleToRect(windowRectangle);
@@ -1211,7 +1230,7 @@ VOID PhLoadWindowPlacementFromSetting(
 
         if (SizeSettingName)
         {
-            size = PhGetIntegerPairSetting(SizeSettingName);
+            size = PhGetScalableIntegerPairSetting(SizeSettingName, TRUE).Pair;
             flags &= ~SWP_NOSIZE;
         }
         else
@@ -1247,7 +1266,7 @@ VOID PhSaveWindowPlacementToSetting(
     if (PositionSettingName)
         PhSetIntegerPairSetting(PositionSettingName, windowRectangle.Position);
     if (SizeSettingName)
-        PhSetIntegerPairSetting(SizeSettingName, windowRectangle.Size);
+        PhSetScalableIntegerPairSetting2(SizeSettingName, windowRectangle.Size);
 }
 
 VOID PhLoadListViewColumnsFromSetting(
@@ -1278,13 +1297,15 @@ PPH_STRING PhGetPhVersion(
     VOID
     )
 {
-    PH_FORMAT format[3];
+    PH_FORMAT format[5];
 
     PhInitFormatU(&format[0], PHAPP_VERSION_MAJOR);
     PhInitFormatC(&format[1], '.');
     PhInitFormatU(&format[2], PHAPP_VERSION_MINOR);
+    PhInitFormatC(&format[3], '.');
+    PhInitFormatU(&format[4], PHAPP_VERSION_REVISION);
 
-    return PhFormat(format, 3, 16);
+    return PhFormat(format, 5, 16);
 }
 
 VOID PhGetPhVersionNumbers(
@@ -1363,6 +1384,23 @@ BOOLEAN PhShellProcessHacker(
         );
 }
 
+VOID PhpAppendCommandLineArgument(
+    _Inout_ PPH_STRING_BUILDER StringBuilder,
+    _In_ PWSTR Name,
+    _In_ PPH_STRINGREF Value
+    )
+{
+    PPH_STRING temp;
+
+    PhAppendStringBuilder2(StringBuilder, L" -");
+    PhAppendStringBuilder2(StringBuilder, Name);
+    PhAppendStringBuilder2(StringBuilder, L" \"");
+    temp = PhEscapeCommandLinePart(Value);
+    PhAppendStringBuilder(StringBuilder, &temp->sr);
+    PhDereferenceObject(temp);
+    PhAppendCharStringBuilder(StringBuilder, '\"');
+}
+
 BOOLEAN PhShellProcessHackerEx(
     _In_opt_ HWND hWnd,
     _In_opt_ PWSTR FileName,
@@ -1377,7 +1415,6 @@ BOOLEAN PhShellProcessHackerEx(
     BOOLEAN result;
     PH_STRING_BUILDER sb;
     PWSTR parameters;
-    PPH_STRING temp;
 
     if (AppFlags & PH_SHELL_APP_PROPAGATE_PARAMETERS)
     {
@@ -1391,53 +1428,79 @@ BOOLEAN PhShellProcessHackerEx(
         }
         else if (PhStartupParameters.SettingsFileName && (PhSettingsFileName || (AppFlags & PH_SHELL_APP_PROPAGATE_PARAMETERS_FORCE_SETTINGS)))
         {
-            PhAppendStringBuilder2(&sb, L" -settings \"");
+            PPH_STRINGREF fileName;
 
             if (PhSettingsFileName)
-                temp = PhEscapeCommandLinePart(&PhSettingsFileName->sr);
+                fileName = &PhSettingsFileName->sr;
             else
-                temp = PhEscapeCommandLinePart(&PhStartupParameters.SettingsFileName->sr);
+                fileName = &PhStartupParameters.SettingsFileName->sr;
 
-            PhAppendStringBuilder(&sb, &temp->sr);
-            PhDereferenceObject(temp);
-            PhAppendCharStringBuilder(&sb, '\"');
+            PhpAppendCommandLineArgument(&sb, L"settings", fileName);
         }
 
         if (PhStartupParameters.NoKph)
-        {
             PhAppendStringBuilder2(&sb, L" -nokph");
-        }
-
+        if (PhStartupParameters.InstallKph)
+            PhAppendStringBuilder2(&sb, L" -installkph");
+        if (PhStartupParameters.UninstallKph)
+            PhAppendStringBuilder2(&sb, L" -uninstallkph");
+        if (PhStartupParameters.Debug)
+            PhAppendStringBuilder2(&sb, L" -debug");
         if (PhStartupParameters.NoPlugins)
-        {
             PhAppendStringBuilder2(&sb, L" -noplugins");
+        if (PhStartupParameters.NewInstance)
+            PhAppendStringBuilder2(&sb, L" -newinstance");
+
+        if (PhStartupParameters.SelectPid != 0)
+            PhAppendFormatStringBuilder(&sb, L" -selectpid %u", PhStartupParameters.SelectPid);
+
+        if (PhStartupParameters.PriorityClass != 0)
+        {
+            CHAR value = 0;
+
+            switch (PhStartupParameters.PriorityClass)
+            {
+            case PROCESS_PRIORITY_CLASS_REALTIME:
+                value = L'r';
+                break;
+            case PROCESS_PRIORITY_CLASS_HIGH:
+                value = L'h';
+                break;
+            case PROCESS_PRIORITY_CLASS_NORMAL:
+                value = L'n';
+                break;
+            case PROCESS_PRIORITY_CLASS_IDLE:
+                value = L'l';
+                break;
+            }
+
+            if (value != 0)
+            {
+                PhAppendStringBuilder2(&sb, L" -priority ");
+                PhAppendCharStringBuilder(&sb, value);
+            }
         }
 
-        if (PhStartupParameters.NewInstance)
+        if (PhStartupParameters.PluginParameters)
         {
-            PhAppendStringBuilder2(&sb, L" -newinstance");
+            ULONG i;
+
+            for (i = 0; i < PhStartupParameters.PluginParameters->Count; i++)
+            {
+                PPH_STRING value = PhStartupParameters.PluginParameters->Items[i];
+                PhpAppendCommandLineArgument(&sb, L"plugin", &value->sr);
+            }
         }
 
         if (PhStartupParameters.SelectTab)
-        {
-            PhAppendStringBuilder2(&sb, L" -selecttab \"");
-            temp = PhEscapeCommandLinePart(&PhStartupParameters.SelectTab->sr);
-            PhAppendStringBuilder(&sb, &temp->sr);
-            PhDereferenceObject(temp);
-            PhAppendCharStringBuilder(&sb, '\"');
-        }
+            PhpAppendCommandLineArgument(&sb, L"selecttab", &PhStartupParameters.SelectTab->sr);
 
         if (!(AppFlags & PH_SHELL_APP_PROPAGATE_PARAMETERS_IGNORE_VISIBILITY))
         {
             if (PhStartupParameters.ShowVisible)
-            {
                 PhAppendStringBuilder2(&sb, L" -v");
-            }
-
             if (PhStartupParameters.ShowHidden)
-            {
                 PhAppendStringBuilder2(&sb, L" -hide");
-            }
         }
 
         // Add user-specified parameters last so they can override the propagated parameters.
@@ -1502,7 +1565,7 @@ BOOLEAN PhCreateProcessIgnoreIfeoDebugger(
     // allows us to skip the Debugger IFEO value.
     if (CreateProcess(FileName, NULL, NULL, NULL, FALSE, DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS, NULL, NULL, &startupInfo, &processInfo))
     {
-        // Stop debugging taskmgr.exe now.
+        // Stop debugging the process now.
         debugSetProcessKillOnExit(FALSE);
         debugActiveProcessStop(processInfo.dwProcessId);
         result = TRUE;
@@ -1541,13 +1604,13 @@ VOID PhInitializeTreeNewColumnMenuEx(
     Data->Selection = NULL;
     Data->ProcessedId = 0;
 
-    sizeColumnToFitMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_SIZE_COLUMN_TO_FIT_ID, L"Size Column to Fit", NULL, NULL);
-    sizeAllColumnsToFitMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_SIZE_ALL_COLUMNS_TO_FIT_ID, L"Size All Columns to Fit", NULL, NULL);
+    sizeColumnToFitMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_SIZE_COLUMN_TO_FIT_ID, L"Size column to fit", NULL, NULL);
+    sizeAllColumnsToFitMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_SIZE_ALL_COLUMNS_TO_FIT_ID, L"Size all columns to fit", NULL, NULL);
 
     if (!(Flags & PH_TN_COLUMN_MENU_NO_VISIBILITY))
     {
-        hideColumnMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_HIDE_COLUMN_ID, L"Hide Column", NULL, NULL);
-        chooseColumnsMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_CHOOSE_COLUMNS_ID, L"Choose Columns...", NULL, NULL);
+        hideColumnMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_HIDE_COLUMN_ID, L"Hide column", NULL, NULL);
+        chooseColumnsMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_CHOOSE_COLUMNS_ID, L"Choose columns...", NULL, NULL);
     }
 
     if (Flags & PH_TN_COLUMN_MENU_SHOW_RESET_SORT)
@@ -1557,8 +1620,8 @@ VOID PhInitializeTreeNewColumnMenuEx(
 
         TreeNew_GetSort(Data->TreeNewHandle, &sortColumn, &sortOrder);
 
-        if (sortColumn != Data->DefaultSortColumn || sortOrder != Data->DefaultSortOrder)
-            resetSortMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_RESET_SORT_ID, L"Reset Sort", NULL, NULL);
+        if (sortOrder != Data->DefaultSortOrder || (Data->DefaultSortOrder != NoSortOrder && sortColumn != Data->DefaultSortColumn))
+            resetSortMenuItem = PhCreateEMenuItem(0, PH_TN_COLUMN_MENU_RESET_SORT_ID, L"Reset sort", NULL, NULL);
     }
 
     PhInsertEMenuItem(Data->Menu, sizeColumnToFitMenuItem, -1);
@@ -2071,7 +2134,7 @@ BOOLEAN PhShellOpenKey2(
         return TRUE;
     }
 
-    if (!PhElevated)
+    if (!PhGetOwnTokenAttributes().Elevated)
     {
         if (!PhUiConnectToPhSvc(hWnd, FALSE))
             return FALSE;
@@ -2100,14 +2163,46 @@ BOOLEAN PhShellOpenKey2(
     PhDereferenceObject(expandedKeyName);
 
     // Select our entry in regedit.
-    result = PhpSelectFavoriteInRegedit(regeditWindow, &valueNameSr, !PhElevated);
+    result = PhpSelectFavoriteInRegedit(regeditWindow, &valueNameSr, !PhGetOwnTokenAttributes().Elevated);
 
     NtDeleteValueKey(favoritesKeyHandle, &valueName);
     NtClose(favoritesKeyHandle);
 
 CleanupExit:
-    if (!PhElevated)
+    if (!PhGetOwnTokenAttributes().Elevated)
         PhUiDisconnectFromPhSvc();
 
     return result;
+}
+
+PPH_STRING PhPcre2GetErrorMessage(
+    _In_ INT ErrorCode
+    )
+{
+    PPH_STRING buffer;
+    SIZE_T bufferLength;
+    INT_PTR returnLength;
+
+    bufferLength = 128 * sizeof(WCHAR);
+    buffer = PhCreateStringEx(NULL, bufferLength);
+
+    while (TRUE)
+    {
+        if ((returnLength = pcre2_get_error_message(ErrorCode, buffer->Buffer, bufferLength / sizeof(WCHAR) + 1)) >= 0)
+            break;
+
+        PhDereferenceObject(buffer);
+        bufferLength *= 2;
+
+        if (bufferLength > 0x1000 * sizeof(WCHAR))
+            break;
+
+        buffer = PhCreateStringEx(NULL, bufferLength);
+    }
+
+    if (returnLength < 0)
+        return NULL;
+
+    buffer->Length = returnLength * sizeof(WCHAR);
+    return buffer;
 }

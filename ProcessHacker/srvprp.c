@@ -21,8 +21,11 @@
  */
 
 #include <phapp.h>
+#include <srvprv.h>
 #include <secedit.h>
 #include <phplug.h>
+#include <actions.h>
+#include <svcsup.h>
 #include <phsvccl.h>
 #include <windowsx.h>
 
@@ -74,7 +77,7 @@ static _Callback_ NTSTATUS PhpSetServiceSecurity(
 
     status = PhStdSetObjectSecurity(SecurityDescriptor, SecurityInformation, Context);
 
-    if ((status == STATUS_ACCESS_DENIED || status == NTSTATUS_FROM_WIN32(ERROR_ACCESS_DENIED)) && !PhElevated)
+    if ((status == STATUS_ACCESS_DENIED || status == NTSTATUS_FROM_WIN32(ERROR_ACCESS_DENIED)) && !PhGetOwnTokenAttributes().Elevated)
     {
         // Elevate using phsvc.
         if (PhUiConnectToPhSvc(NULL, FALSE))
@@ -161,7 +164,7 @@ VOID PhShowServiceProperties(
         propSheetHeader.nPages = objectProperties.NumberOfPages;
     }
 
-    PropertySheet(&propSheetHeader);
+    PhModalPropertySheet(&propSheetHeader);
 }
 
 static VOID PhpRefreshControls(
@@ -419,16 +422,16 @@ INT_PTR CALLBACK PhpServiceGeneralDlgProc(
                         return TRUE;
                     }
 
-                    newServiceTypeString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_TYPE)));
-                    newServiceStartTypeString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_STARTTYPE)));
-                    newServiceErrorControlString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_ERRORCONTROL)));
+                    newServiceTypeString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_TYPE)));
+                    newServiceStartTypeString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_STARTTYPE)));
+                    newServiceErrorControlString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_ERRORCONTROL)));
                     newServiceType = PhGetServiceTypeInteger(newServiceTypeString->Buffer);
                     newServiceStartType = PhGetServiceStartTypeInteger(newServiceStartTypeString->Buffer);
                     newServiceErrorControl = PhGetServiceErrorControlInteger(newServiceErrorControlString->Buffer);
 
-                    newServiceGroup = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_GROUP)));
-                    newServiceBinaryPath = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_BINARYPATH)));
-                    newServiceUserAccount = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_USERACCOUNT)));
+                    newServiceGroup = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_GROUP)));
+                    newServiceBinaryPath = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_BINARYPATH)));
+                    newServiceUserAccount = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_USERACCOUNT)));
 
                     if (Button_GetCheck(GetDlgItem(hwndDlg, IDC_PASSWORDCHECK)) == BST_CHECKED)
                     {
@@ -486,7 +489,7 @@ INT_PTR CALLBACK PhpServiceGeneralDlgProc(
                     }
                     else
                     {
-                        if (GetLastError() == ERROR_ACCESS_DENIED && !PhElevated)
+                        if (GetLastError() == ERROR_ACCESS_DENIED && !PhGetOwnTokenAttributes().Elevated)
                         {
                             // Elevate using phsvc.
                             if (PhUiConnectToPhSvc(hwndDlg, FALSE))
@@ -553,7 +556,7 @@ ErrorCase:
                         hwndDlg,
                         MB_ICONERROR | MB_RETRYCANCEL,
                         L"Unable to change service configuration: %s",
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetWin32Message(GetLastError())))->Buffer
+                        PH_AUTO_T(PH_STRING, PhGetWin32Message(GetLastError()))->Buffer
                         ) == IDRETRY)
                     {
                         SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_INVALID);

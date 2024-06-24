@@ -2,7 +2,7 @@
  * Process Hacker .NET Tools -
  *   CLR data access functions
  *
- * Copyright (C) 2011-2013 wj32
+ * Copyright (C) 2011-2015 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -267,7 +267,7 @@ HRESULT CreateXCLRDataProcess(
     if (!dllBase)
         return E_FAIL;
 
-    clrDataCreateInstance = (PVOID)GetProcAddress(dllBase, "CLRDataCreateInstance");
+    clrDataCreateInstance = PhGetProcedureAddress(dllBase, "CLRDataCreateInstance", 0);
 
     if (!clrDataCreateInstance)
         return E_FAIL;
@@ -455,7 +455,7 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_ReadVirtual(
     NTSTATUS status;
     SIZE_T numberOfBytesRead;
 
-    if (NT_SUCCESS(status = PhReadVirtualMemory(
+    if (NT_SUCCESS(status = NtReadVirtualMemory(
         this->ProcessHandle,
         (PVOID)address,
         buffer,
@@ -534,9 +534,9 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_GetThreadContext(
     memset(&buffer, 0, sizeof(CONTEXT));
     buffer.ContextFlags = contextFlags;
 
-    if (NT_SUCCESS(status = PhOpenThread(&threadHandle, THREAD_GET_CONTEXT, ULongToHandle(threadID))))
+    if (NT_SUCCESS(status = PhOpenThread(&threadHandle, THREAD_GET_CONTEXT, UlongToHandle(threadID))))
     {
-        status = PhGetThreadContext(threadHandle, &buffer);
+        status = NtGetContextThread(threadHandle, &buffer);
         NtClose(threadHandle);
     }
 

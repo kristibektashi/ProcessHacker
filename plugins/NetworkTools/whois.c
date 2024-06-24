@@ -20,13 +20,11 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma comment(lib, "Winhttp.lib")
-
 #include "nettools.h"
 #include <mxml.h>
 #include <winhttp.h>
 
-static BOOLEAN ReadRequestString(
+BOOLEAN ReadRequestString(
     _In_ HINTERNET Handle,
     _Out_ _Deref_post_z_cap_(*DataLength) PSTR *Data,
     _Out_ ULONG *DataLength
@@ -128,6 +126,19 @@ NTSTATUS NetworkWhoisThreadStart(
             )))
         {
             __leave;
+        }
+
+        if (WindowsVersion >= WINDOWS_8_1)
+        {
+            // Enable GZIP and DEFLATE support on Windows 8.1 and above using undocumented flags.
+            ULONG httpFlags = WINHTTP_DECOMPRESSION_FLAG_GZIP | WINHTTP_DECOMPRESSION_FLAG_DEFLATE;
+
+            WinHttpSetOption(
+                sessionHandle,
+                WINHTTP_OPTION_DECOMPRESSION,
+                &httpFlags,
+                sizeof(ULONG)
+                );
         }
 
         if (!(connectionHandle = WinHttpConnect(

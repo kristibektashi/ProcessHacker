@@ -21,6 +21,9 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
+#include <srvprv.h>
+#include <svcsup.h>
 #include <phplug.h>
 #include <verify.h>
 #define CINTERFACE
@@ -403,8 +406,6 @@ PPH_STRING PhGetProcessTooltipText(
             PhAppendStringBuilder2(&notes, L"    Process is a Modern UI app.\n");
         if (Process->IsInJob)
             PhAppendStringBuilder2(&notes, L"    Process is in a job.\n");
-        if (Process->IsPosix)
-            PhAppendStringBuilder2(&notes, L"    Process is POSIX.\n");
         if (Process->IsWow64)
             PhAppendStringBuilder2(&notes, L"    Process is 32-bit (WOW64).\n");
 
@@ -539,6 +540,8 @@ VOID PhpFillUmdfDrivers(
                     PhDereferenceObject(driverKeyPath);
                 }
             }
+
+            break;
         }
 
         PhFreePage(environment);
@@ -599,16 +602,16 @@ VOID PhpFillRunningTasks(
 
                             if (
                                 SUCCEEDED(IRunningTask_get_EnginePID(runningTask, &pid)) &&
-                                pid == (ULONG)Process->ProcessId
+                                pid == HandleToUlong(Process->ProcessId)
                                 )
                             {
                                 IRunningTask_get_CurrentAction(runningTask, &action);
                                 IRunningTask_get_Path(runningTask, &path);
 
                                 PhAppendStringBuilder(Tasks, &StandardIndent);
-                                PhAppendStringBuilder2(Tasks, action ? action : L"Unknown Action");
+                                PhAppendStringBuilder2(Tasks, action ? action : L"Unknown action");
                                 PhAppendStringBuilder2(Tasks, L" (");
-                                PhAppendStringBuilder2(Tasks, path ? path : L"Unknown Path");
+                                PhAppendStringBuilder2(Tasks, path ? path : L"Unknown path");
                                 PhAppendStringBuilder2(Tasks, L")\n");
 
                                 if (action)

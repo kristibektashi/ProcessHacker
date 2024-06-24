@@ -122,8 +122,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,4,0,0
- PRODUCTVERSION 1,4,0,0
+ FILEVERSION 1,6,0,0
+ PRODUCTVERSION 1,6,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -140,18 +140,29 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "wj32"
             VALUE "FileDescription", "User Notes plugin for Process Hacker"
-            VALUE "FileVersion", "1.4"
+            VALUE "FileVersion", "1.6"
             VALUE "InternalName", "UserNotes"
             VALUE "LegalCopyright", "Licensed under the GNU GPL, v3."
             VALUE "OriginalFilename", "UserNotes.dll"
             VALUE "ProductName", "User Notes plugin for Process Hacker"
-            VALUE "ProductVersion", "1.4"
+            VALUE "ProductVersion", "1.6"
         END
     END
     BLOCK "VarFileInfo"
     BEGIN
         VALUE "Translation", 0xc09, 1200
     END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_OPTIONS AFX_DIALOG_LAYOUT
+BEGIN
+    0
 END
 
 #endif    // English (Australia) resources

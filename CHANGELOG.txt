@@ -1,5 +1,82 @@
 Process Hacker
 
+2.39
+ * HIGHLIGHTS:
+   * Improved compatibility with security and anti-cheat software
+   * Added ability to edit process environment variables
+   * Fixed .NET process detection
+ * OTHER CHANGES:
+   * Improved tooltip information for dllhost.exe
+   * Removed Terminator
+   * Updated DotNetTools plugin:
+     * Fixed .NET assembly tab performance issues
+     * Added extra .NET memory counters to the .NET performance tab
+     * Added "Show sizes in bytes" checkbox to the .NET performance tab
+     * Added right-click menu to the .NET assembly tab
+   * Updated ExtendedTools plugin:
+     * Fixed "No process" disk event bug
+   * Updated HardwareDevices plugin:
+     * Fixed incorrect drive letters
+     * Fixed drive letter and panel clipping issue
+
+2.38
+ * HIGHLIGHTS:
+   * Added labels to indicate the maximum data point in each I/O graph
+   * Graph grids now scale correctly when resized
+   * Improved high DPI scaling
+   * Added exploit mitigation policy information to process properties (Windows 8 and above)
+   * Added File modified time and File size columns for processes and modules
+   * Added Key modified time column for services
+   * Clicking a tray icon now shows the pop-up UI (useful for touch-enabled devices)
+   * The NetAdapters plugin has been renamed to HardwareDevices
+     * This plugin shows network adapter and disk drive graphs
+     * If you are manually upgrading, please delete NetAdapters.dll from the plugins folder
+   * Updated UserNotes plugin:
+     * Added "Collapse by default" option for processes
+ * OTHER CHANGES:
+   * Added "Start when I log on" option
+   * Added "Not responding" text to tray icon rich pop-up for programs that are hung
+   * Added right-click menu and double-click action for environment variables
+   * Added dialog box to show long command line strings
+   * Added Time stamp column for processes
+   * Added -sysinfo command line parameter for opening System Information at startup
+   * Added 32x32 icons for high DPI displays
+   * Digital signature verification is now performed with very low I/O priority
+   * Improved performance when handling a large number of threads, modules or handles
+   * The pop-up UI no longer displays when double-clicking the tray icon
+   * Fixed ASLR state being shown as N/A in process properties
+   * Fixed multi monitor window placement bug
+   * Fixed handle enumeration bug affecting processes with PID >= 65536
+   * Fixed Interrupts being missing from the max CPU usage history
+   * Updated ToolStatus plugin:
+     * Added 32x32 icons for high DPI displays
+     * Fixed status bar crash
+ * NOTE:
+   * This release has significant internal code changes. Please make sure all plugins are up-to-date.
+
+2.37
+ * HIGHLIGHTS:
+   * Updated for Windows 10
+   * The "Include CPU (and other) usage of children in collapsed processes" option now aggregates memory and I/O statistics
+   * Added regex search to "Find Handles or DLLs"
+   * Added process exit codes to log
+   * Fixed crash that occurred under some conditions when processes terminated
+ * OTHER CHANGES:
+   * Added warning when trying to search for handles when the system has too many handles open
+   * Upgraded to PCRE2
+   * Updated DotNetTools plugin:
+     * Rewrite of .NET Performance statistics and AppDomain enumeration
+   * Updated OnlineChecks plugin:
+     * Fixed virusscan.jotti.org uploader
+   * Updated NetAdapters plugin:
+     * Added adapter details window
+   * Updated ToolStatus plugin:
+     * Added CPU, Memory and I/O graphs to the toolbar (not enabled by default)
+     * Added toolbar and status bar customization, as well as a new theme
+     * Added option to auto-hide the main menu
+   * Updated UserNotes plugin:
+     * Added individual process highlighting support
+
 2.36
  * HIGHLIGHTS:
    * New rich pop-up UI when hovering the cursor over a tray icon, showing the most active processes
