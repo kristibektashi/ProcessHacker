@@ -3,7 +3,7 @@
  *   Main Headers
  *
  * Copyright (C) 2010-2013 wj32
- * Copyright (C) 2012-2014 dmex
+ * Copyright (C) 2012-2016 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -23,8 +23,6 @@
 
 #ifndef ONLNCHK_H
 #define ONLNCHK_H
-
-#pragma comment(lib, "Winhttp.lib")
 
 #define CINTERFACE
 #define COBJMACROS

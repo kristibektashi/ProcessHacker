@@ -21,17 +21,15 @@
  */
 
 #include <phbase.h>
+#include <fastlock.h>
 
 // FastLock is a port of FastResourceLock from PH 1.x.
 //
-// The code contains no comments because it is a direct
-// port. Please see FastResourceLock.cs in PH 1.x for
-// details.
+// The code contains no comments because it is a direct port. Please see FastResourceLock.cs in PH
+// 1.x for details.
 
-// The fast lock is around 7% faster than the critical
-// section when there is no contention, when used
-// solely for mutual exclusion. It is also much smaller
-// than the critical section.
+// The fast lock is around 7% faster than the critical section when there is no contention, when
+// used solely for mutual exclusion. It is also much smaller than the critical section.
 
 #define PH_LOCK_OWNED 0x1
 #define PH_LOCK_EXCLUSIVE_WAKING 0x2
@@ -109,7 +107,9 @@ FORCEINLINE ULONG PhpGetSpinCount(
         return 0;
 }
 
-_May_raise_ VOID FASTCALL PhfAcquireFastLockExclusive(
+_May_raise_
+_Acquires_exclusive_lock_(*FastLock)
+VOID FASTCALL PhfAcquireFastLockExclusive(
     _Inout_ PPH_FAST_LOCK FastLock
     )
 {
@@ -167,7 +167,9 @@ _May_raise_ VOID FASTCALL PhfAcquireFastLockExclusive(
     }
 }
 
-_May_raise_ VOID FASTCALL PhfAcquireFastLockShared(
+_May_raise_
+_Acquires_shared_lock_(*FastLock)
+VOID FASTCALL PhfAcquireFastLockShared(
     _Inout_ PPH_FAST_LOCK FastLock
     )
 {
@@ -233,6 +235,7 @@ _May_raise_ VOID FASTCALL PhfAcquireFastLockShared(
     }
 }
 
+_Releases_exclusive_lock_(*FastLock)
 VOID FASTCALL PhfReleaseFastLockExclusive(
     _Inout_ PPH_FAST_LOCK FastLock
     )
@@ -279,6 +282,7 @@ VOID FASTCALL PhfReleaseFastLockExclusive(
     }
 }
 
+_Releases_shared_lock_(*FastLock)
 VOID FASTCALL PhfReleaseFastLockShared(
     _Inout_ PPH_FAST_LOCK FastLock
     )
@@ -326,6 +330,7 @@ VOID FASTCALL PhfReleaseFastLockShared(
     }
 }
 
+_When_(return != 0, _Acquires_exclusive_lock_(*FastLock))
 BOOLEAN FASTCALL PhfTryAcquireFastLockExclusive(
     _Inout_ PPH_FAST_LOCK FastLock
     )
@@ -344,6 +349,7 @@ BOOLEAN FASTCALL PhfTryAcquireFastLockExclusive(
         ) == value;
 }
 
+_When_(return != 0, _Acquires_shared_lock_(*FastLock))
 BOOLEAN FASTCALL PhfTryAcquireFastLockShared(
     _Inout_ PPH_FAST_LOCK FastLock
     )

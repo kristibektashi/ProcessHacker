@@ -22,18 +22,18 @@
 
 /*
  * The run-as mechanism has three stages:
- * 1. The user enters the information into the dialog box. Here it is decided
- *    whether the run-as service is needed. If it is not, PhCreateProcessAsUser
- *    is called directly. Otherwise, PhExecuteRunAsCommand2 is called for
- *    stage 2.
- * 2. PhExecuteRunAsCommand2 creates a random service name and tries to create
- *    the service and execute it (using PhExecuteRunAsCommand). If the process
- *    has insufficient permissions, an elevated instance of phsvc is started
- *    and PhSvcCallExecuteRunAsCommand is called.
- * 3. The service is started, and sets up an instance of phsvc with the same
- *    random service name as its port name. Either the original or elevated
- *    Process Hacker instance then calls PhSvcCallInvokeRunAsService to complete
- *    the operation.
+ * 1. The user enters the information into the dialog box. Here it is decided whether the run-as
+ *    service is needed. If it is not, PhCreateProcessAsUser is called directly. Otherwise,
+ *    PhExecuteRunAsCommand2 is called for stage 2.
+ * 2. PhExecuteRunAsCommand2 creates a random service name and tries to create the service and
+ *    execute it (using PhExecuteRunAsCommand). If the process has insufficient permissions, an
+ *    elevated instance of phsvc is started and PhSvcCallExecuteRunAsCommand is called.
+ * 3. The service is started, and sets up an instance of phsvc with the same random service name as
+ *    its port name. Either the original or elevated Process Hacker instance then calls
+ *    PhSvcCallInvokeRunAsService to complete the operation.
+ */
+
+/*
  *
  * ProcessHacker.exe (user, limited privileges)
  *   *                       | ^
@@ -61,8 +61,10 @@
 #include <phapp.h>
 #include <phsvc.h>
 #include <phsvccl.h>
+#include <actions.h>
 #include <settings.h>
 #include <emenu.h>
+#include <lsasup.h>
 #include <shlwapi.h>
 #include <winsta.h>
 #include <windowsx.h>
@@ -288,14 +290,12 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                 SetDlgItemInt(hwndDlg, IDC_SESSIONID, sessionId, FALSE);
 
             SetDlgItemText(hwndDlg, IDC_DESKTOP, L"WinSta0\\Default");
-
-            SetDlgItemText(hwndDlg, IDC_PROGRAM,
-                ((PPH_STRING)PhAutoDereferenceObject(PhGetStringSetting(L"RunAsProgram")))->Buffer);
+            SetDlgItemText(hwndDlg, IDC_PROGRAM, PhaGetStringSetting(L"RunAsProgram")->Buffer);
 
             if (!context->ProcessId)
             {
                 SetDlgItemText(hwndDlg, IDC_USERNAME,
-                    ((PPH_STRING)PhAutoDereferenceObject(PhGetStringSetting(L"RunAsUserName")))->Buffer);
+                    PH_AUTO_T(PH_STRING, PhGetStringSetting(L"RunAsUserName"))->Buffer);
 
                 // Fire the user name changed event so we can fix the logon type.
                 SendMessage(hwndDlg, WM_COMMAND, MAKEWPARAM(IDC_USERNAME, CBN_EDITCHANGE), 0);
@@ -314,9 +314,9 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                     )))
                 {
                     if (NT_SUCCESS(PhOpenProcessToken(
-                        &tokenHandle,
+                        processHandle,
                         TOKEN_QUERY,
-                        processHandle
+                        &tokenHandle
                         )))
                     {
                         if (NT_SUCCESS(PhGetTokenUser(tokenHandle, &user)))
@@ -344,7 +344,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
             SendMessage(hwndDlg, WM_NEXTDLGCTL, (WPARAM)GetDlgItem(hwndDlg, IDC_PROGRAM), TRUE);
             Edit_SetSel(GetDlgItem(hwndDlg, IDC_PROGRAM), 0, -1);
 
-            //if (!PhElevated)
+            //if (!PhGetOwnTokenAttributes().Elevated)
             //    SendMessage(GetDlgItem(hwndDlg, IDOK), BCM_SETSHIELD, 0, TRUE);
 
             if (!WINDOWS_HAS_UAC)
@@ -390,13 +390,8 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
 
                         if (NT_SUCCESS(PhLookupName(&userName->sr, &sid, NULL, NULL)))
                         {
-                            newUserName = PhGetSidFullName(sid, TRUE, NULL);
-
-                            if (newUserName)
-                            {
-                                PhAutoDereferenceObject(newUserName);
+                            if (newUserName = PH_AUTO(PhGetSidFullName(sid, TRUE, NULL)))
                                 userName = newUserName;
-                            }
 
                             PhFree(sid);
                         }
@@ -533,7 +528,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
 
                     if (!context->ProcessId && HIWORD(wParam) == CBN_SELCHANGE)
                     {
-                        userName = PhAutoDereferenceObject(PhGetComboBoxString(GetDlgItem(hwndDlg, IDC_USERNAME), -1));
+                        userName = PH_AUTO(PhGetComboBoxString(GetDlgItem(hwndDlg, IDC_USERNAME), -1));
                     }
                     else if (!context->ProcessId && (
                         HIWORD(wParam) == CBN_EDITCHANGE ||
@@ -607,7 +602,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                                 sessions[i].WinStationName[0] != 0
                                 )
                             {
-                                menuString = PhFormatString(
+                                menuString = PhaFormatString(
                                     L"%u: %s (%s\\%s)",
                                     sessions[i].SessionId,
                                     sessions[i].WinStationName,
@@ -617,7 +612,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                             }
                             else if (winStationInfo.UserName[0] != 0)
                             {
-                                menuString = PhFormatString(
+                                menuString = PhaFormatString(
                                     L"%u: %s\\%s",
                                     sessions[i].SessionId,
                                     winStationInfo.Domain,
@@ -626,7 +621,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                             }
                             else if (sessions[i].WinStationName[0] != 0)
                             {
-                                menuString = PhFormatString(
+                                menuString = PhaFormatString(
                                     L"%u: %s",
                                     sessions[i].SessionId,
                                     sessions[i].WinStationName
@@ -634,12 +629,11 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                             }
                             else
                             {
-                                menuString = PhFormatString(L"%u", sessions[i].SessionId);
+                                menuString = PhaFormatString(L"%u", sessions[i].SessionId);
                             }
 
                             PhInsertEMenuItem(sessionsMenu,
-                                PhCreateEMenuItem(0, 0, menuString->Buffer, NULL, (PVOID)sessions[i].SessionId), -1);
-                            PhAutoDereferenceObject(menuString);
+                                PhCreateEMenuItem(0, 0, menuString->Buffer, NULL, UlongToPtr(sessions[i].SessionId)), -1);
                         }
 
                         WinStationFreeMemory(sessions);
@@ -660,7 +654,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                             SetDlgItemInt(
                                 hwndDlg,
                                 IDC_SESSIONID,
-                                (ULONG)selectedItem->Context,
+                                PtrToUlong(selectedItem->Context),
                                 FALSE
                                 );
                         }
@@ -937,7 +931,7 @@ NTSTATUS PhExecuteRunAsCommand2(
     UNICODE_STRING portNameUs;
 
     memset(&parameters, 0, sizeof(PH_RUNAS_SERVICE_PARAMETERS));
-    parameters.ProcessId = (ULONG)ProcessIdWithToken;
+    parameters.ProcessId = HandleToUlong(ProcessIdWithToken);
     parameters.UserName = UserName;
     parameters.Password = Password;
     parameters.LogonType = LogonType;
@@ -980,7 +974,7 @@ NTSTATUS PhExecuteRunAsCommand2(
 
     parameters.ServiceName = serviceName;
 
-    if (PhElevated)
+    if (PhGetOwnTokenAttributes().Elevated)
     {
         status = PhExecuteRunAsCommand(&parameters);
     }
@@ -1089,10 +1083,10 @@ NTSTATUS PhRunAsServiceStart(
 
     // Enable some required privileges.
 
-    if (NT_SUCCESS(PhOpenProcessToken(
-        &tokenHandle,
+    if (NT_SUCCESS(NtOpenProcessToken(
+        NtCurrentProcess(),
         TOKEN_ADJUST_PRIVILEGES,
-        NtCurrentProcess()
+        &tokenHandle
         )))
     {
         PhSetTokenPrivilege(tokenHandle, L"SeAssignPrimaryTokenPrivilege", NULL, SE_PRIVILEGE_ENABLED);

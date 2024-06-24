@@ -2,7 +2,7 @@
  * Process Hacker -
  *   object manager
  *
- * Copyright (C) 2009-2015 wj32
+ * Copyright (C) 2009-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -20,9 +20,9 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define _PH_REF_PRIVATE
 #include <phbase.h>
 #include <phintrnl.h>
+#include <workqueue.h>
 #include <refp.h>
 
 PPH_OBJECT_TYPE PhObjectTypeObject = NULL;
@@ -46,7 +46,7 @@ PPH_CREATE_OBJECT_HOOK PhDbgCreateObjectHook = NULL;
 /**
  * Initializes the object manager module.
  */
-NTSTATUS PhInitializeRef(
+NTSTATUS PhRefInitialization(
     VOID
     )
 {
@@ -102,7 +102,8 @@ _May_raise_ PVOID PhCreateObject(
     NTSTATUS status = STATUS_SUCCESS;
     PPH_OBJECT_HEADER objectHeader;
 
-    // Allocate storage for the object. Note that this includes the object header followed by the object body.
+    // Allocate storage for the object. Note that this includes the object header followed by the
+    // object body.
     objectHeader = PhpAllocateObject(ObjectType, ObjectSize);
 
     // Object type statistics.
@@ -177,9 +178,9 @@ PVOID PhReferenceObject(
  * \param Object A pointer to the object to reference.
  * \param RefCount The number of references to add.
  *
- * \return The new reference count of the object.
+ * \return The object.
  */
-_May_raise_ LONG PhReferenceObjectEx(
+_May_raise_ PVOID PhReferenceObjectEx(
     _In_ PVOID Object,
     _In_ LONG RefCount
     )
@@ -193,37 +194,34 @@ _May_raise_ LONG PhReferenceObjectEx(
     // Increase the reference count.
     oldRefCount = _InterlockedExchangeAdd(&objectHeader->RefCount, RefCount);
 
-    return oldRefCount + RefCount;
+    return Object;
 }
 
 /**
- * Attempts to reference an object and fails if it is being
- * destroyed.
+ * Attempts to reference an object and fails if it is being destroyed.
  *
  * \param Object The object to reference if it is not being deleted.
  *
- * \return TRUE if the object was referenced, FALSE if
- * it was being deleted and was not referenced.
+ * \return The object itself if the object was referenced, NULL if it was being deleted and was not
+ * referenced.
  *
- * \remarks
- * This function is useful if a reference to an object is
- * held, protected by a mutex, and the delete procedure of
- * the object's type attempts to acquire the mutex. If this
- * function is called while the mutex is owned, you can
- * avoid referencing an object that is being destroyed.
+ * \remarks This function is useful if a reference to an object is held, protected by a mutex, and
+ * the delete procedure of the object's type attempts to acquire the mutex. If this function is
+ * called while the mutex is owned, you can avoid referencing an object that is being destroyed.
  */
-BOOLEAN PhReferenceObjectSafe(
+PVOID PhReferenceObjectSafe(
     _In_ PVOID Object
     )
 {
     PPH_OBJECT_HEADER objectHeader;
-    BOOLEAN result;
 
     objectHeader = PhObjectToObjectHeader(Object);
-    // Increase the reference count only if it isn't 0 (atomically).
-    result = PhpInterlockedIncrementSafe(&objectHeader->RefCount);
 
-    return result;
+    // Increase the reference count only if it positive already (atomically).
+    if (PhpInterlockedIncrementSafe(&objectHeader->RefCount))
+        return Object;
+    else
+        return NULL;
 }
 
 /**
@@ -231,8 +229,6 @@ BOOLEAN PhReferenceObjectSafe(
  * The object will be freed if its reference count reaches 0.
  *
  * \param Object A pointer to the object to dereference.
- *
- * \return TRUE if the object was freed, otherwise FALSE.
  */
 VOID PhDereferenceObject(
     _In_ PVOID Object
@@ -255,18 +251,15 @@ VOID PhDereferenceObject(
 
 /**
  * Dereferences the specified object.
- * The object will be freed in a worker thread if its reference count
- * reaches 0.
+ * The object will be freed in a worker thread if its reference count reaches 0.
  *
  * \param Object A pointer to the object to dereference.
- *
- * \return TRUE if the object was freed, otherwise FALSE.
  */
-BOOLEAN PhDereferenceObjectDeferDelete(
+VOID PhDereferenceObjectDeferDelete(
     _In_ PVOID Object
     )
 {
-    return PhDereferenceObjectEx(Object, 1, TRUE) == 0;
+    PhDereferenceObjectEx(Object, 1, TRUE);
 }
 
 /**
@@ -276,10 +269,8 @@ BOOLEAN PhDereferenceObjectDeferDelete(
  * \param Object A pointer to the object to dereference.
  * \param RefCount The number of references to remove.
  * \param DeferDelete Whether to defer deletion of the object.
- *
- * \return The new reference count of the object.
  */
-_May_raise_ LONG PhDereferenceObjectEx(
+_May_raise_ VOID PhDereferenceObjectEx(
     _In_ PVOID Object,
     _In_ LONG RefCount,
     _In_ BOOLEAN DeferDelete
@@ -314,8 +305,6 @@ _May_raise_ LONG PhDereferenceObjectEx(
     {
         PhRaiseStatus(STATUS_INVALID_PARAMETER);
     }
-
-    return newRefCount;
 }
 
 /**
@@ -336,16 +325,13 @@ PPH_OBJECT_TYPE PhGetObjectType(
  * Creates an object type.
  *
  * \param Name The name of the type.
- * \param Flags A combination of flags affecting the behaviour of the
- * object type.
- * \param DeleteProcedure A callback function that is executed when
- * an object of this type is about to be freed (i.e. when its
- * reference count is 0).
+ * \param Flags A combination of flags affecting the behaviour of the object type.
+ * \param DeleteProcedure A callback function that is executed when an object of this type is about
+ * to be freed (i.e. when its reference count is 0).
  *
  * \return A pointer to the newly created object type.
  *
- * \remarks Do not reference or dereference the object type once it
- * is created.
+ * \remarks Do not reference or dereference the object type once it is created.
  */
 PPH_OBJECT_TYPE PhCreateObjectType(
     _In_ PWSTR Name,
@@ -365,18 +351,14 @@ PPH_OBJECT_TYPE PhCreateObjectType(
  * Creates an object type.
  *
  * \param Name The name of the type.
- * \param Flags A combination of flags affecting the behaviour of the
- * object type.
- * \param DeleteProcedure A callback function that is executed when
- * an object of this type is about to be freed (i.e. when its
- * reference count is 0).
- * \param Parameters A structure containing additional parameters
- * for the object type.
+ * \param Flags A combination of flags affecting the behaviour of the object type.
+ * \param DeleteProcedure A callback function that is executed when an object of this type is about
+ * to be freed (i.e. when its reference count is 0).
+ * \param Parameters A structure containing additional parameters for the object type.
  *
  * \return A pointer to the newly created object type.
  *
- * \remarks Do not reference or dereference the object type once it
- * is created.
+ * \remarks Do not reference or dereference the object type once it is created.
  */
 PPH_OBJECT_TYPE PhCreateObjectTypeEx(
     _In_ PWSTR Name,
@@ -479,8 +461,7 @@ PPH_OBJECT_HEADER PhpAllocateObject(
 }
 
 /**
- * Calls the delete procedure for an object and frees its
- * allocated storage.
+ * Calls the delete procedure for an object and frees its allocated storage.
  *
  * \param ObjectHeader A pointer to the object header of an allocated object.
  */
@@ -529,14 +510,20 @@ VOID PhpFreeObject(
 /**
  * Queues an object for deletion.
  *
- * \param ObjectHeader A pointer to the object header of the object
- * to delete.
+ * \param ObjectHeader A pointer to the object header of the object to delete.
  */
 VOID PhpDeferDeleteObject(
     _In_ PPH_OBJECT_HEADER ObjectHeader
     )
 {
     PSLIST_ENTRY oldFirstEntry;
+
+    // Save TypeIndex and Flags since they get overwritten when we push the object onto the defer
+    // delete list.
+    ObjectHeader->DeferDelete = 1;
+    MemoryBarrier();
+    ObjectHeader->SavedTypeIndex = ObjectHeader->TypeIndex;
+    ObjectHeader->SavedFlags = ObjectHeader->Flags;
 
     oldFirstEntry = RtlFirstEntrySList(&PhObjectDeferDeleteListHead);
     RtlInterlockedPushEntrySList(&PhObjectDeferDeleteListHead, &ObjectHeader->DeferDeleteListEntry);
@@ -545,7 +532,7 @@ VOID PhpDeferDeleteObject(
     // Was the to-free list empty before? If so, we need to queue a work item.
     if (!oldFirstEntry)
     {
-        PhQueueItemGlobalWorkQueue(PhpDeferDeleteObjectRoutine, NULL);
+        PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), PhpDeferDeleteObjectRoutine, NULL);
     }
 }
 
@@ -566,6 +553,10 @@ NTSTATUS PhpDeferDeleteObjectRoutine(
     {
         objectHeader = CONTAINING_RECORD(listEntry, PH_OBJECT_HEADER, DeferDeleteListEntry);
         listEntry = listEntry->Next;
+
+        // Restore TypeIndex and Flags.
+        objectHeader->TypeIndex = (USHORT)objectHeader->SavedTypeIndex;
+        objectHeader->Flags = (UCHAR)objectHeader->SavedFlags;
 
         PhpFreeObject(objectHeader);
     }
@@ -622,12 +613,11 @@ _May_raise_ FORCEINLINE VOID PhpSetCurrentAutoPool(
 }
 
 /**
- * Initializes an auto-dereference pool and sets it as the current pool
- * for the current thread. You must call PhDeleteAutoPool() before storage
- * for the auto-dereference pool is freed.
+ * Initializes an auto-dereference pool and sets it as the current pool for the current thread. You
+ * must call PhDeleteAutoPool() before storage for the auto-dereference pool is freed.
  *
- * \remarks Always store auto-dereference pools in local variables, and do
- * not share the pool with any other functions.
+ * \remarks Always store auto-dereference pools in local variables, and do not share the pool with
+ * any other functions.
  */
 VOID PhInitializeAutoPool(
     _Out_ PPH_AUTO_POOL AutoPool
@@ -646,10 +636,8 @@ VOID PhInitializeAutoPool(
 }
 
 /**
- * Deletes an auto-dereference pool.
- * The function will dereference any objects currently in the pool.
- * If a pool other than the current pool is passed to the function,
- * an exception is raised.
+ * Deletes an auto-dereference pool. The function will dereference any objects currently in the
+ * pool. If a pool other than the current pool is passed to the function, an exception is raised.
  *
  * \param AutoPool The auto-dereference pool to delete.
  */
@@ -707,12 +695,11 @@ VOID PhDrainAutoPool(
 }
 
 /**
- * Adds an object to the current auto-dereference pool for the current thread.
- * If the current thread does not have an auto-dereference pool, the function
- * raises an exception.
+ * Adds an object to the current auto-dereference pool for the current thread. If the current thread
+ * does not have an auto-dereference pool, the function raises an exception.
  *
- * \param Object A pointer to an object. The object will be dereferenced when
- * the current auto-dereference pool is drained or freed.
+ * \param Object A pointer to an object. The object will be dereferenced when the current
+ * auto-dereference pool is drained or freed.
  */
 _May_raise_ PVOID PhAutoDereferenceObject(
     _In_opt_ PVOID Object
@@ -721,8 +708,8 @@ _May_raise_ PVOID PhAutoDereferenceObject(
     PPH_AUTO_POOL autoPool = PhpGetCurrentAutoPool();
 
 #ifdef DEBUG
-    // If we don't have an auto-dereference pool, we don't want to leak the
-    // object (unlike what Apple does with NSAutoreleasePool).
+    // If we don't have an auto-dereference pool, we don't want to leak the object (unlike what
+    // Apple does with NSAutoreleasePool).
     if (!autoPool)
         PhRaiseStatus(STATUS_UNSUCCESSFUL);
 #endif
@@ -763,12 +750,4 @@ _May_raise_ PVOID PhAutoDereferenceObject(
     autoPool->DynamicObjects[autoPool->DynamicCount++] = Object;
 
     return Object;
-}
-
-VOID PhaDereferenceObject(PVOID Object)
-{
-    if (!Object)
-        PhRaiseStatus(STATUS_INVALID_PARAMETER);
-
-    PhAutoDereferenceObject(Object);
 }

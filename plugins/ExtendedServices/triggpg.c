@@ -20,10 +20,7 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phdk.h>
-#include <windowsx.h>
 #include "extsrv.h"
-#include "resource.h"
 
 typedef struct _SERVICE_TRIGGERS_CONTEXT
 {
@@ -98,7 +95,7 @@ INT_PTR CALLBACK EspServiceTriggersDlgProc(
             if (!NT_SUCCESS(status))
             {
                 PhShowWarning(hwndDlg, L"Unable to query service trigger information: %s",
-                    ((PPH_STRING)PhAutoDereferenceObject(PhGetNtMessage(status)))->Buffer);
+                    ((PPH_STRING)PH_AUTO(PhGetNtMessage(status)))->Buffer);
             }
         }
         break;
@@ -150,7 +147,7 @@ INT_PTR CALLBACK EspServiceTriggersDlgProc(
                             hwndDlg,
                             MB_ICONERROR | MB_RETRYCANCEL,
                             L"Unable to change service trigger information: %s",
-                            ((PPH_STRING)PhAutoDereferenceObject(PhGetWin32Message(win32Result)))->Buffer
+                            ((PPH_STRING)PH_AUTO(PhGetWin32Message(win32Result)))->Buffer
                             ) == IDRETRY))
                         {
                             SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_INVALID);

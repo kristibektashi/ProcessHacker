@@ -21,7 +21,9 @@
  */
 
 #include <ph.h>
+#include <hndlinfo.h>
 #include <kphuser.h>
+#include <lsasup.h>
 
 #define PH_QUERY_HACK_MAX_THREADS 20
 
@@ -41,8 +43,7 @@ typedef enum _PHP_QUERY_OBJECT_WORK
 {
     NtQueryObjectWork,
     NtQuerySecurityObjectWork,
-    NtSetSecurityObjectWork,
-    KphDuplicateObjectWork
+    NtSetSecurityObjectWork
 } PHP_QUERY_OBJECT_WORK;
 
 typedef struct _PHP_QUERY_OBJECT_COMMON_CONTEXT
@@ -74,16 +75,6 @@ typedef struct _PHP_QUERY_OBJECT_COMMON_CONTEXT
             SECURITY_INFORMATION SecurityInformation;
             PSECURITY_DESCRIPTOR SecurityDescriptor;
         } NtSetSecurityObject;
-        struct
-        {
-            HANDLE SourceProcessHandle;
-            HANDLE SourceHandle;
-            HANDLE TargetProcessHandle;
-            PHANDLE TargetHandle;
-            ACCESS_MASK DesiredAccess;
-            ULONG HandleAttributes;
-            ULONG Options;
-        } KphDuplicateObject;
     } u;
 } PHP_QUERY_OBJECT_COMMON_CONTEXT, *PPHP_QUERY_OBJECT_COMMON_CONTEXT;
 
@@ -110,7 +101,7 @@ static PPH_STRING PhObjectTypeNames[MAX_OBJECT_TYPE_NUMBER] = { 0 };
 static PPH_GET_CLIENT_ID_NAME PhHandleGetClientIdName = PhStdGetClientIdName;
 
 static SLIST_HEADER PhpCallWithTimeoutThreadListHead;
-static PH_QUEUED_LOCK PhpCallWithTimeoutThreadReleaseEvent = PH_QUEUED_LOCK_INIT;
+static PH_WAKE_EVENT PhpCallWithTimeoutThreadReleaseEvent = PH_WAKE_EVENT_INIT;
 
 PPH_GET_CLIENT_ID_NAME PhSetHandleClientIdFunction(
     _In_ PPH_GET_CLIENT_ID_NAME GetClientIdName
@@ -143,8 +134,8 @@ NTSTATUS PhpGetObjectBasicInformation(
 
         if (NT_SUCCESS(status))
         {
-            // The object was referenced in KProcessHacker, so
-            // we need to subtract 1 from the pointer count.
+            // The object was referenced in KProcessHacker, so we need to subtract 1 from the
+            // pointer count.
             BasicInformation->PointerCount -= 1;
         }
     }
@@ -160,10 +151,8 @@ NTSTATUS PhpGetObjectBasicInformation(
 
         if (NT_SUCCESS(status))
         {
-            // The object was referenced in NtQueryObject and
-            // a handle was opened to the object. We need to
-            // subtract 1 from the pointer count, then subtract
-            // 1 from both counts.
+            // The object was referenced in NtQueryObject and a handle was opened to the object. We
+            // need to subtract 1 from the pointer count, then subtract 1 from both counts.
             BasicInformation->HandleCount -= 1;
             BasicInformation->PointerCount -= 2;
         }
@@ -182,8 +171,7 @@ NTSTATUS PhpGetObjectTypeName(
     NTSTATUS status = STATUS_SUCCESS;
     PPH_STRING typeName = NULL;
 
-    // If the cache contains the object type name, use it. Otherwise,
-    // query the type name.
+    // If the cache contains the object type name, use it. Otherwise, query the type name.
 
     if (ObjectTypeNumber != -1 && ObjectTypeNumber < MAX_OBJECT_TYPE_NUMBER)
         typeName = PhObjectTypeNames[ObjectTypeNumber];
@@ -275,8 +263,7 @@ NTSTATUS PhpGetObjectTypeName(
         PhFree(buffer);
     }
 
-    // At this point typeName should contain a type name
-    // with one additional reference.
+    // At this point typeName should contain a type name with one additional reference.
 
     *TypeName = typeName;
 
@@ -381,19 +368,19 @@ PPH_STRING PhFormatNativeKeyName(
 
     if (PhBeginInitOnce(&initOnce))
     {
+        HANDLE currentTokenHandle;
         PTOKEN_USER tokenUser;
         PPH_STRING stringSid = NULL;
 
-        if (PhCurrentTokenQueryHandle)
+        currentTokenHandle = PhGetOwnTokenAttributes().TokenHandle;
+
+        if (currentTokenHandle && NT_SUCCESS(PhGetTokenUser(
+            currentTokenHandle,
+            &tokenUser
+            )))
         {
-            if (NT_SUCCESS(PhGetTokenUser(
-                PhCurrentTokenQueryHandle,
-                &tokenUser
-                )))
-            {
-                stringSid = PhSidToStringSid(tokenUser->User.Sid);
-                PhFree(tokenUser);
-            }
+            stringSid = PhSidToStringSid(tokenUser->User.Sid);
+            PhFree(tokenUser);
         }
 
         if (stringSid)
@@ -496,8 +483,7 @@ _Callback_ PPH_STRING PhStdGetClientIdName(
     ULONG tickCount;
     PSYSTEM_PROCESS_INFORMATION processInfo;
 
-    // Get a new process list only if 2 seconds have passed
-    // since the last update.
+    // Get a new process list only if 2 seconds have passed since the last update.
 
     tickCount = GetTickCount();
 
@@ -546,14 +532,17 @@ _Callback_ PPH_STRING PhStdGetClientIdName(
                 L"%.*s (%u): %u",
                 processInfo->ImageName.Length / 2,
                 processInfo->ImageName.Buffer,
-                (ULONG)ClientId->UniqueProcess,
-                (ULONG)ClientId->UniqueThread
+                HandleToUlong(ClientId->UniqueProcess),
+                HandleToUlong(ClientId->UniqueThread)
                 );
         }
         else
         {
-            name = PhFormatString(L"Non-existent process (%u): %u",
-                (ULONG)ClientId->UniqueProcess, (ULONG)ClientId->UniqueThread);
+            name = PhFormatString(
+                L"Non-existent process (%u): %u",
+                HandleToUlong(ClientId->UniqueProcess), 
+                HandleToUlong(ClientId->UniqueThread)
+                );
         }
     }
     else
@@ -564,12 +553,12 @@ _Callback_ PPH_STRING PhStdGetClientIdName(
                 L"%.*s (%u)",
                 processInfo->ImageName.Length / 2,
                 processInfo->ImageName.Buffer,
-                (ULONG)ClientId->UniqueProcess
+                HandleToUlong(ClientId->UniqueProcess)
                 );
         }
         else
         {
-            name = PhFormatString(L"Non-existent process (%u)", (ULONG)ClientId->UniqueProcess);
+            name = PhFormatString(L"Non-existent process (%u)", HandleToUlong(ClientId->UniqueProcess));
         }
     }
 
@@ -1134,23 +1123,17 @@ CleanupExit:
 /**
  * Gets information for a handle.
  *
- * \param ProcessHandle A handle to the process in which the
- * handle resides.
+ * \param ProcessHandle A handle to the process in which the handle resides.
  * \param Handle The handle value.
- * \param ObjectTypeNumber The object type number of the handle.
- * You can specify -1 for this parameter if the object type number
- * is not known.
- * \param BasicInformation A variable which receives basic
- * information about the object.
+ * \param ObjectTypeNumber The object type number of the handle. You can specify -1 for this
+ * parameter if the object type number is not known.
+ * \param BasicInformation A variable which receives basic information about the object.
  * \param TypeName A variable which receives the object type name.
  * \param ObjectName A variable which receives the object name.
- * \param BestObjectName A variable which receives the formatted
- * object name.
+ * \param BestObjectName A variable which receives the formatted object name.
  *
- * \retval STATUS_INVALID_HANDLE The handle specified in
- * \c ProcessHandle or \c Handle is invalid.
- * \retval STATUS_INVALID_PARAMETER_3 The value specified in
- * \c ObjectTypeNumber is invalid.
+ * \retval STATUS_INVALID_HANDLE The handle specified in \c ProcessHandle or \c Handle is invalid.
+ * \retval STATUS_INVALID_PARAMETER_3 The value specified in \c ObjectTypeNumber is invalid.
  */
 NTSTATUS PhGetHandleInformation(
     _In_ HANDLE ProcessHandle,
@@ -1200,33 +1183,25 @@ NTSTATUS PhGetHandleInformation(
 /**
  * Gets information for a handle.
  *
- * \param ProcessHandle A handle to the process in which the
- * handle resides.
+ * \param ProcessHandle A handle to the process in which the handle resides.
  * \param Handle The handle value.
- * \param ObjectTypeNumber The object type number of the handle.
- * You can specify -1 for this parameter if the object type number
- * is not known.
+ * \param ObjectTypeNumber The object type number of the handle. You can specify -1 for this
+ * parameter if the object type number is not known.
  * \param Flags Reserved.
- * \param SubStatus A variable which receives the NTSTATUS value of
- * the last component that fails. If all operations succeed, the
- * value will be STATUS_SUCCESS. If the function returns an error
+ * \param SubStatus A variable which receives the NTSTATUS value of the last component that fails.
+ * If all operations succeed, the value will be STATUS_SUCCESS. If the function returns an error
  * status, this variable is not set.
- * \param BasicInformation A variable which receives basic
- * information about the object.
+ * \param BasicInformation A variable which receives basic information about the object.
  * \param TypeName A variable which receives the object type name.
  * \param ObjectName A variable which receives the object name.
- * \param BestObjectName A variable which receives the formatted
- * object name.
+ * \param BestObjectName A variable which receives the formatted object name.
  * \param ExtraInformation Reserved.
  *
- * \retval STATUS_INVALID_HANDLE The handle specified in
- * \c ProcessHandle or \c Handle is invalid.
- * \retval STATUS_INVALID_PARAMETER_3 The value specified in
- * \c ObjectTypeNumber is invalid.
+ * \retval STATUS_INVALID_HANDLE The handle specified in \c ProcessHandle or \c Handle is invalid.
+ * \retval STATUS_INVALID_PARAMETER_3 The value specified in \c ObjectTypeNumber is invalid.
  *
- * \remarks If \a BasicInformation or \a TypeName are specified,
- * the function will fail if either cannot be queried. \a ObjectName,
- * \a BestObjectName and \a ExtraInformation will return NULL if they
+ * \remarks If \a BasicInformation or \a TypeName are specified, the function will fail if either
+ * cannot be queried. \a ObjectName, \a BestObjectName and \a ExtraInformation will be NULL if they
  * cannot be queried.
  */
 NTSTATUS PhGetHandleInformationEx(
@@ -1608,8 +1583,8 @@ NTSTATUS PhpCallWithTimeout(
 
     if (status != STATUS_WAIT_0)
     {
-        // The operation timed out, or there was an error. Kill the thread.
-        // On Vista and above, the thread stack is freed automatically.
+        // The operation timed out, or there was an error. Kill the thread. On Vista and above, the
+        // thread stack is freed automatically.
         NtTerminateThread(ThreadContext->ThreadHandle, STATUS_UNSUCCESSFUL);
         status = NtWaitForSingleObject(ThreadContext->ThreadHandle, FALSE, NULL);
         NtClose(ThreadContext->ThreadHandle);
@@ -1699,17 +1674,6 @@ NTSTATUS PhpCommonQueryObjectRoutine(
             context->u.NtSetSecurityObject.SecurityDescriptor
             );
         break;
-    case KphDuplicateObjectWork:
-        context->Status = KphDuplicateObject(
-            context->u.KphDuplicateObject.SourceProcessHandle,
-            context->u.KphDuplicateObject.SourceHandle,
-            context->u.KphDuplicateObject.TargetProcessHandle,
-            context->u.KphDuplicateObject.TargetHandle,
-            context->u.KphDuplicateObject.DesiredAccess,
-            context->u.KphDuplicateObject.HandleAttributes,
-            context->u.KphDuplicateObject.Options
-            );
-        break;
     default:
         context->Status = STATUS_INVALID_PARAMETER;
         break;
@@ -1794,32 +1758,6 @@ NTSTATUS PhCallNtSetSecurityObjectWithTimeout(
     context->u.NtSetSecurityObject.Handle = Handle;
     context->u.NtSetSecurityObject.SecurityInformation = SecurityInformation;
     context->u.NtSetSecurityObject.SecurityDescriptor = SecurityDescriptor;
-
-    return PhpCommonQueryObjectWithTimeout(context);
-}
-
-NTSTATUS PhCallKphDuplicateObjectWithTimeout(
-    _In_ HANDLE SourceProcessHandle,
-    _In_ HANDLE SourceHandle,
-    _In_opt_ HANDLE TargetProcessHandle,
-    _Out_opt_ PHANDLE TargetHandle,
-    _In_ ACCESS_MASK DesiredAccess,
-    _In_ ULONG HandleAttributes,
-    _In_ ULONG Options
-    )
-{
-    PPHP_QUERY_OBJECT_COMMON_CONTEXT context;
-
-    context = PhAllocate(sizeof(PHP_QUERY_OBJECT_COMMON_CONTEXT));
-    context->Work = KphDuplicateObjectWork;
-    context->Status = STATUS_UNSUCCESSFUL;
-    context->u.KphDuplicateObject.SourceProcessHandle = SourceProcessHandle;
-    context->u.KphDuplicateObject.SourceHandle = SourceHandle;
-    context->u.KphDuplicateObject.TargetProcessHandle = TargetProcessHandle;
-    context->u.KphDuplicateObject.TargetHandle = TargetHandle;
-    context->u.KphDuplicateObject.DesiredAccess = DesiredAccess;
-    context->u.KphDuplicateObject.HandleAttributes = HandleAttributes;
-    context->u.KphDuplicateObject.Options = Options;
 
     return PhpCommonQueryObjectWithTimeout(context);
 }

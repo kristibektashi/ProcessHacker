@@ -21,6 +21,7 @@
  */
 
 #include <phapp.h>
+#include <memprv.h>
 #include <heapstruct.h>
 
 #define MAX_HEAPS 1000
@@ -196,48 +197,21 @@ PPH_MEMORY_ITEM PhLookupMemoryItemList(
     PH_MEMORY_ITEM lookupMemoryItem;
     PPH_AVL_LINKS links;
     PPH_MEMORY_ITEM memoryItem;
-    LONG result;
 
     // Do an approximate search on the set to locate the memory item with the largest
     // base address that is still smaller than the given address.
     lookupMemoryItem.BaseAddress = Address;
-    links = PhFindElementAvlTree2(&List->Set, &lookupMemoryItem.Links, &result);
-    memoryItem = NULL;
+    links = PhUpperDualBoundElementAvlTree(&List->Set, &lookupMemoryItem.Links);
 
     if (links)
     {
-        if (result == 0)
-        {
-            // Exact match.
-        }
-        else if (result < 0)
-        {
-            // The base of the closest known memory region is larger than our address. Assume the
-            // preceding element (which is going to be smaller than our address) is the
-            // one we're looking for.
+        memoryItem = CONTAINING_RECORD(links, PH_MEMORY_ITEM, Links);
 
-            links = PhPredecessorElementAvlTree(links);
-        }
-        else
-        {
-            // The base of the closest known memory region is smaller than our address. Assume this
-            // is the element we're looking for.
-        }
-
-        if (links)
-        {
-            memoryItem = CONTAINING_RECORD(links, PH_MEMORY_ITEM, Links);
-        }
-    }
-    else
-    {
-        // No modules loaded.
+        if ((ULONG_PTR)Address < (ULONG_PTR)memoryItem->BaseAddress + memoryItem->RegionSize)
+            return memoryItem;
     }
 
-    if (memoryItem && (ULONG_PTR)Address < (ULONG_PTR)memoryItem->BaseAddress + memoryItem->RegionSize)
-        return memoryItem;
-    else
-        return NULL;
+    return NULL;
 }
 
 PPH_MEMORY_ITEM PhpSetMemoryRegionType(
@@ -311,16 +285,16 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
         {
             PhpSetMemoryRegionType(List, basicInfo.PebBaseAddress, TRUE, PebRegion);
 
-            if (NT_SUCCESS(PhReadVirtualMemory(ProcessHandle,
+            if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle,
                 PTR_ADD_OFFSET(basicInfo.PebBaseAddress, FIELD_OFFSET(PEB, NumberOfHeaps)),
                 &numberOfHeaps, sizeof(ULONG), NULL)) && numberOfHeaps < MAX_HEAPS)
             {
                 processHeaps = PhAllocate(numberOfHeaps * sizeof(PVOID));
 
-                if (NT_SUCCESS(PhReadVirtualMemory(ProcessHandle,
+                if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle,
                     PTR_ADD_OFFSET(basicInfo.PebBaseAddress, FIELD_OFFSET(PEB, ProcessHeaps)),
                     &processHeapsPtr, sizeof(PVOID), NULL)) &&
-                    NT_SUCCESS(PhReadVirtualMemory(ProcessHandle,
+                    NT_SUCCESS(NtReadVirtualMemory(ProcessHandle,
                     processHeapsPtr,
                     processHeaps, numberOfHeaps * sizeof(PVOID), NULL)))
                 {
@@ -341,22 +315,22 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
             isWow64 = TRUE;
             PhpSetMemoryRegionType(List, peb32, TRUE, Peb32Region);
 
-            if (NT_SUCCESS(PhReadVirtualMemory(ProcessHandle,
+            if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle,
                 PTR_ADD_OFFSET(peb32, FIELD_OFFSET(PEB32, NumberOfHeaps)),
                 &numberOfHeaps, sizeof(ULONG), NULL)) && numberOfHeaps < MAX_HEAPS)
             {
                 processHeaps32 = PhAllocate(numberOfHeaps * sizeof(ULONG));
 
-                if (NT_SUCCESS(PhReadVirtualMemory(ProcessHandle,
+                if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle,
                     PTR_ADD_OFFSET(peb32, FIELD_OFFSET(PEB32, ProcessHeaps)),
                     &processHeapsPtr32, sizeof(ULONG), NULL)) &&
-                    NT_SUCCESS(PhReadVirtualMemory(ProcessHandle,
-                    (PVOID)processHeapsPtr32,
+                    NT_SUCCESS(NtReadVirtualMemory(ProcessHandle,
+                    UlongToPtr(processHeapsPtr32),
                     processHeaps32, numberOfHeaps * sizeof(ULONG), NULL)))
                 {
                     for (i = 0; i < numberOfHeaps; i++)
                     {
-                        if (memoryItem = PhpSetMemoryRegionType(List, (PVOID)processHeaps32[i], TRUE, Heap32Region))
+                        if (memoryItem = PhpSetMemoryRegionType(List, UlongToPtr(processHeaps32[i]), TRUE, Heap32Region))
                             memoryItem->u.Heap.Index = i;
                     }
                 }
@@ -394,7 +368,7 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
             if (memoryItem = PhpSetMemoryRegionType(List, thread->TebBase, TRUE, TebRegion))
                 memoryItem->u.Teb.ThreadId = thread->ThreadInfo.ClientId.UniqueThread;
 
-            if (NT_SUCCESS(PhReadVirtualMemory(ProcessHandle, thread->TebBase, &ntTib, sizeof(NT_TIB), &bytesRead)) &&
+            if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle, thread->TebBase, &ntTib, sizeof(NT_TIB), &bytesRead)) &&
                 bytesRead == sizeof(NT_TIB))
             {
                 if ((ULONG_PTR)ntTib.StackLimit < (ULONG_PTR)ntTib.StackBase)
@@ -406,18 +380,18 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
 
                 if (isWow64 && ntTib.ExceptionList)
                 {
-                    ULONG teb32 = (ULONG)ntTib.ExceptionList;
+                    ULONG teb32 = PtrToUlong(ntTib.ExceptionList);
                     NT_TIB32 ntTib32;
 
                     // 64-bit and 32-bit TEBs usually share the same memory region, so don't do anything for the 32-bit
                     // TEB.
 
-                    if (NT_SUCCESS(PhReadVirtualMemory(ProcessHandle, (PVOID)teb32, &ntTib32, sizeof(NT_TIB32), &bytesRead)) &&
+                    if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle, UlongToPtr(teb32), &ntTib32, sizeof(NT_TIB32), &bytesRead)) &&
                         bytesRead == sizeof(NT_TIB32))
                     {
                         if (ntTib32.StackLimit < ntTib32.StackBase)
                         {
-                            if (memoryItem = PhpSetMemoryRegionType(List, (PVOID)ntTib32.StackLimit, TRUE, Stack32Region))
+                            if (memoryItem = PhpSetMemoryRegionType(List, UlongToPtr(ntTib32.StackLimit), TRUE, Stack32Region))
                                 memoryItem->u.Stack.ThreadId = thread->ThreadInfo.ClientId.UniqueThread;
                         }
                     }
@@ -456,7 +430,7 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
         {
             UCHAR buffer[HEAP_SEGMENT_MAX_SIZE];
 
-            if (NT_SUCCESS(PhReadVirtualMemory(ProcessHandle, memoryItem->BaseAddress,
+            if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle, memoryItem->BaseAddress,
                 buffer, sizeof(buffer), NULL)))
             {
                 PVOID candidateHeap = NULL;
@@ -498,9 +472,9 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
                 }
                 else if (candidateHeap32)
                 {
-                    heapMemoryItem = PhLookupMemoryItemList(List, (PVOID)candidateHeap32);
+                    heapMemoryItem = PhLookupMemoryItemList(List, UlongToPtr(candidateHeap32));
 
-                    if (heapMemoryItem && heapMemoryItem->BaseAddress == (PVOID)candidateHeap32 &&
+                    if (heapMemoryItem && heapMemoryItem->BaseAddress == UlongToPtr(candidateHeap32) &&
                         heapMemoryItem->RegionType == Heap32Region)
                     {
                         memoryItem->RegionType = HeapSegment32Region;

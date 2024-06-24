@@ -15,9 +15,6 @@
 #define MIP_UNPIN_CHILD_CONTROL_DELAY 1000
 #define MIP_UNPIN_HOVER_DELAY 250
 
-#define MIP_SEPARATOR_HEIGHT 2
-#define MIP_PADDING_SIZE 3
-
 #define MIP_REFRESH_AUTOMATICALLY_PINNED 0x1
 #define MIP_REFRESH_AUTOMATICALLY_UNPINNED 0x2
 #define MIP_REFRESH_AUTOMATICALLY_FLAG(Pinned) \
@@ -25,8 +22,8 @@
 
 // Misc.
 
-#define SET_BUTTON_BITMAP(hwndDlg, Id, Bitmap) \
-    SendMessage(GetDlgItem(hwndDlg, (Id)), BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)(Bitmap))
+#define SET_BUTTON_ICON(hwndDlg, Id, Icon) \
+    SendMessage(GetDlgItem(hwndDlg, (Id)), BM_SETIMAGE, IMAGE_ICON, (LPARAM)(Icon))
 
 // Dialog procedure
 
@@ -242,6 +239,7 @@ typedef struct _PH_MIP_GROUP_NODE
     PPH_PROCESS_GROUP ProcessGroup;
     HANDLE RepresentativeProcessId;
     LARGE_INTEGER RepresentativeCreateTime;
+    BOOLEAN RepresentativeIsHung;
 
     PPH_STRING TooltipText;
 } PH_MIP_GROUP_NODE, *PPH_MIP_GROUP_NODE;
@@ -345,7 +343,7 @@ int __cdecl PhMipCpuListSectionNodeCompareFunction(
     _In_ const void *elem2
     );
 
-// Commit Charge section
+// Commit charge section
 
 BOOLEAN PhMipCommitListSectionCallback(
     _In_ struct _PH_MINIINFO_LIST_SECTION *ListSection,
@@ -364,7 +362,7 @@ int __cdecl PhMipCommitListSectionNodeCompareFunction(
     _In_ const void *elem2
     );
 
-// Physical Memory section
+// Physical memory section
 
 BOOLEAN PhMipPhysicalListSectionCallback(
     _In_ struct _PH_MINIINFO_LIST_SECTION *ListSection,

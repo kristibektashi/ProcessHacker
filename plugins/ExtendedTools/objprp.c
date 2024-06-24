@@ -21,7 +21,6 @@
  */
 
 #include "exttools.h"
-#include "resource.h"
 #include <symprv.h>
 
 typedef struct _COMMON_PAGE_CONTEXT
@@ -164,7 +163,7 @@ static NTSTATUS EtpDuplicateHandleFromProcess(
         )))
         return status;
 
-    status = PhDuplicateObject(
+    status = NtDuplicateObject(
         processHandle,
         Context->HandleItem->Handle,
         NtCurrentProcess(),

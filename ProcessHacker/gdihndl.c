@@ -21,6 +21,7 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
 #include <ntgdi.h>
 
 typedef struct _GDI_HANDLES_CONTEXT
@@ -122,7 +123,7 @@ PPH_STRING PhpGetGdiHandleInformation(
 {
     HGDIOBJ handle;
 
-    handle = (HGDIOBJ)Handle;
+    handle = (HGDIOBJ)UlongToPtr(Handle);
 
     switch (GDI_CLIENT_TYPE_FROM_HANDLE(Handle))
     {
@@ -276,7 +277,7 @@ VOID PhpRefreshGdiHandles(
         PhAddItemList(Context->List, gdiHandleItem);
 
         lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, gdiHandleItem->TypeName, gdiHandleItem);
-        PhPrintPointer(pointer, (PVOID)gdiHandleItem->Handle);
+        PhPrintPointer(pointer, UlongToPtr(gdiHandleItem->Handle));
         PhSetListViewSubItem(lvHandle, lvItemIndex, 1, pointer);
         PhPrintPointer(pointer, gdiHandleItem->Object);
         PhSetListViewSubItem(lvHandle, lvItemIndex, 2, pointer);

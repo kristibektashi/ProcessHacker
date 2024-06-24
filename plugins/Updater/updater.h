@@ -23,18 +23,15 @@
 #ifndef __UPDATER_H__
 #define __UPDATER_H__
 
-#pragma comment(lib, "Winhttp.lib")
-
 #define CINTERFACE
 #define COBJMACROS
 #define INITGUID
 #include <phdk.h>
 #include <phappresource.h>
+#include <verify.h>
 #include <mxml.h>
 #include <windowsx.h>
-#include <netlistmgr.h>
 #include <winhttp.h>
-#include <Wincodec.h>
 
 #include "resource.h"
 
@@ -47,10 +44,12 @@
 #define PH_UPDATENEWER     (WM_APP + 104)
 #define PH_UPDATESUCCESS   (WM_APP + 105)
 #define PH_UPDATEFAILURE   (WM_APP + 106)
+#define PH_UPDATENOTSUPPORTED (WM_APP + 107)
 #define WM_SHOWDIALOG      (WM_APP + 150)
 
 #define PLUGIN_NAME L"ProcessHacker.UpdateChecker"
 #define SETTING_NAME_AUTO_CHECK (PLUGIN_NAME L".PromptStart")
+#define SETTING_NAME_LAST_CHECK (PLUGIN_NAME L".LastUpdateCheckTime")
 
 #define MAKEDLLVERULL(major, minor, build, revision) \
     (((ULONGLONG)(major) << 48) | \
@@ -88,7 +87,6 @@ typedef struct _PH_UPDATER_CONTEXT
     ULONG CurrentMinorVersion;
     ULONG CurrentMajorVersion;
     ULONG CurrentRevisionVersion;
-    PPH_STRING UserAgent;
     PPH_STRING Version;
     PPH_STRING RevVersion;
     PPH_STRING RelDate;

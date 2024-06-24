@@ -21,6 +21,7 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
 #include <memsrch.h>
 #include <windowsx.h>
 
@@ -264,7 +265,7 @@ VOID PhSearchMemoryString(
             BOOLEAN printable2;
             ULONG length;
 
-            if (!NT_SUCCESS(PhReadVirtualMemory(
+            if (!NT_SUCCESS(NtReadVirtualMemory(
                 ProcessHandle,
                 PTR_ADD_OFFSET(baseAddress, offset),
                 buffer,

@@ -120,7 +120,7 @@ LOGICAL DllMain(
             info->DisplayName = L"Window Explorer";
             info->Author = L"wj32";
             info->Description = L"View and manipulate windows.";
-            info->Url = L"http://processhacker.sf.net/forums/viewtopic.php?t=1116";
+            info->Url = L"https://wj32.org/processhacker/forums/viewtopic.php?t=1116";
             info->HasOptions = FALSE;
 
             PhRegisterCallback(
@@ -179,7 +179,7 @@ LOGICAL DllMain(
                     { IntegerSettingType, SETTING_NAME_SHOW_DESKTOP_WINDOWS, L"0" },
                     { StringSettingType, SETTING_NAME_WINDOW_TREE_LIST_COLUMNS, L"" },
                     { IntegerPairSettingType, SETTING_NAME_WINDOWS_WINDOW_POSITION, L"100,100" },
-                    { IntegerPairSettingType, SETTING_NAME_WINDOWS_WINDOW_SIZE, L"690,540" }
+                    { ScalableIntegerPairSettingType, SETTING_NAME_WINDOWS_WINDOW_SIZE, L"@96|690,540" }
                 };
 
                 PhAddSettings(settings, sizeof(settings) / sizeof(PH_SETTING_CREATE));
@@ -255,7 +255,7 @@ VOID NTAPI MenuItemCallback(
             PPH_LIST desktopNames;
             PPH_STRING selectedChoice = NULL;
 
-            desktopNames = PhCreateList(4);
+            desktopNames = PH_AUTO(PhCreateList(4));
             EnumDesktops(GetProcessWindowStation(), WepEnumDesktopProc, (LPARAM)desktopNames);
 
             if (PhaChoiceDialog(
@@ -277,8 +277,6 @@ VOID NTAPI MenuItemCallback(
                 PhSetReference(&selector.Desktop.DesktopName, selectedChoice);
                 WeShowWindowsDialog(WE_PhMainWndHandle, &selector);
             }
-
-            PhDereferenceObject(desktopNames);
         }
         break;
     case ID_PROCESS_WINDOWS:

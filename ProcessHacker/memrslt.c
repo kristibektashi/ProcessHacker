@@ -2,7 +2,7 @@
  * Process Hacker -
  *   memory search results
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -22,9 +22,10 @@
 
 #include <phapp.h>
 #include <emenu.h>
+#include <procprv.h>
 #include <settings.h>
 #include <memsrch.h>
-#include "pcre/pcre.h"
+#include "pcre/pcre2.h"
 #include <windowsx.h>
 
 #define FILTER_CONTAINS 1
@@ -115,8 +116,8 @@ static VOID FilterResults(
 {
     PPH_STRING selectedChoice = NULL;
     PPH_LIST results;
-    pcre *expression;
-    pcre_extra *expression_extra;
+    pcre2_code *compiledExpression;
+    pcre2_match_data *matchData;
 
     results = Context->Results;
 
@@ -184,91 +185,52 @@ static VOID FilterResults(
         }
         else if (Type == FILTER_REGEX || Type == FILTER_REGEX_IGNORECASE)
         {
-            PPH_BYTES patternString;
-            char *errorString;
-            int errorOffset;
-            PCHAR asciiBuffer;
+            int errorCode;
+            PCRE2_SIZE errorOffset;
 
-            // Assume that everything is plain ASCII.
-            patternString = PhConvertUtf16ToUtf8Ex(
+            compiledExpression = pcre2_compile(
                 selectedChoice->Buffer,
-                selectedChoice->Length
-                );
-            PhAutoDereferenceObject(patternString);
-
-            expression = pcre_compile2(
-                patternString->Buffer,
-                (Type == FILTER_REGEX_IGNORECASE ? PCRE_CASELESS : 0) | PCRE_DOTALL,
-                NULL,
-                &errorString,
+                selectedChoice->Length / sizeof(WCHAR),
+                (Type == FILTER_REGEX_IGNORECASE ? PCRE2_CASELESS : 0) | PCRE2_DOTALL,
+                &errorCode,
                 &errorOffset,
                 NULL
                 );
 
-            if (!expression)
+            if (!compiledExpression)
             {
-                PhShowError(hwndDlg, L"Unable to compile the regular expression: \"%S\" at position %d.",
-                    errorString,
+                PhShowError(hwndDlg, L"Unable to compile the regular expression: \"%s\" at position %zu.",
+                    PhGetStringOrDefault(PH_AUTO(PhPcre2GetErrorMessage(errorCode)), L"Unknown error"),
                     errorOffset
                     );
                 continue;
             }
 
-            expression_extra = pcre_study(expression, 0, &errorString);
+            matchData = pcre2_match_data_create_from_pattern(compiledExpression, NULL);
 
-            asciiBuffer = PhAllocatePage(PH_DISPLAY_BUFFER_COUNT + 1, NULL);
             newResults = PhCreateList(1024);
 
             for (i = 0; i < results->Count; i++)
             {
                 PPH_MEMORY_RESULT result = results->Items[i];
-                SIZE_T asciiLength;
-                int r;
 
-                if (!NT_SUCCESS(PhConvertUtf16ToUtf8Buffer(
-                    asciiBuffer,
-                    PH_DISPLAY_BUFFER_COUNT,
-                    &asciiLength,
+                if (pcre2_match(
+                    compiledExpression,
                     result->Display.Buffer,
-                    result->Display.Length
-                    )))
-                    continue;
-
-                // Guard against stack overflows.
-                __try
-                {
-                    r = pcre_exec(
-                        expression,
-                        expression_extra,
-                        asciiBuffer,
-                        (ULONG)asciiLength,
-                        0,
-                        0,
-                        NULL,
-                        0
-                        );
-                }
-                __except (SIMPLE_EXCEPTION_FILTER(GetExceptionCode() == STATUS_STACK_OVERFLOW))
-                {
-                    r = -1;
-
-                    if (!_resetstkoflw())
-                    {
-                        PhRaiseStatus(STATUS_STACK_OVERFLOW);
-                    }
-                }
-
-                if (r >= 0)
+                    result->Display.Length / sizeof(WCHAR),
+                    0,
+                    0,
+                    matchData,
+                    NULL
+                    ) >= 0)
                 {
                     PhReferenceMemoryResult(result);
                     PhAddItemList(newResults, result);
                 }
             }
 
-            PhFreePage(asciiBuffer);
-
-            pcre_free(expression_extra);
-            pcre_free(expression);
+            pcre2_match_data_free(matchData);
+            pcre2_code_free(compiledExpression);
         }
 
         if (newResults)
@@ -319,7 +281,7 @@ INT_PTR CALLBACK PhpMemoryResultsDlgProc(
                 if (processItem = PhReferenceProcessItem(context->ProcessId))
                 {
                     SetWindowText(hwndDlg, PhaFormatString(L"Results - %s (%u)",
-                        processItem->ProcessName->Buffer, (ULONG)processItem->ProcessId)->Buffer);
+                        processItem->ProcessName->Buffer, HandleToUlong(processItem->ProcessId))->Buffer);
                     PhDereferenceObject(processItem);
                 }
             }
@@ -367,8 +329,8 @@ INT_PTR CALLBACK PhpMemoryResultsDlgProc(
                 PH_RECTANGLE windowRectangle;
 
                 windowRectangle.Position = PhGetIntegerPairSetting(L"MemResultsPosition");
-                windowRectangle.Size = PhGetIntegerPairSetting(L"MemResultsSize");
-                PhAdjustRectangleToWorkingArea(hwndDlg, &windowRectangle);
+                windowRectangle.Size = PhGetScalableIntegerPairSetting(L"MemResultsSize", TRUE).Pair;
+                PhAdjustRectangleToWorkingArea(NULL, &windowRectangle);
 
                 MoveWindow(hwndDlg, windowRectangle.Left, windowRectangle.Top,
                     windowRectangle.Width, windowRectangle.Height, FALSE);
@@ -378,7 +340,7 @@ INT_PTR CALLBACK PhpMemoryResultsDlgProc(
                 windowRectangle.Top += 20;
 
                 PhSetIntegerPairSetting(L"MemResultsPosition", windowRectangle.Position);
-                PhSetIntegerPairSetting(L"MemResultsSize", windowRectangle.Size);
+                PhSetScalableIntegerPairSetting2(L"MemResultsSize", windowRectangle.Size);
             }
         }
         break;
@@ -442,7 +404,7 @@ INT_PTR CALLBACK PhpMemoryResultsDlgProc(
                     fileDialog = PhCreateSaveFileDialog();
 
                     PhSetFileDialogFilter(fileDialog, filters, sizeof(filters) / sizeof(PH_FILETYPE_FILTER));
-                    PhSetFileDialogFileName(fileDialog, L"Search Results.txt");
+                    PhSetFileDialogFileName(fileDialog, L"Search results.txt");
 
                     if (PhShowFileDialog(hwndDlg, fileDialog))
                     {
@@ -451,8 +413,7 @@ INT_PTR CALLBACK PhpMemoryResultsDlgProc(
                         PPH_FILE_STREAM fileStream;
                         PPH_STRING string;
 
-                        fileName = PhGetFileDialogFileName(fileDialog);
-                        PhAutoDereferenceObject(fileName);
+                        fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
 
                         if (NT_SUCCESS(status = PhCreateFileStream(
                             &fileStream,

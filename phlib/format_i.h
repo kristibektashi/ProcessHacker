@@ -1,22 +1,18 @@
 /*
- * This file contains the actual formatting code used by various public interface
- * functions.
+ * This file contains the actual formatting code used by various public interface functions.
  *
- * There are three macros defined by the parent function which control how this code
- * writes the formatted string:
- * * ENSURE_BUFFER - This macro is passed the number of bytes required whenever
- *   characters need to be written to the buffer. The macro can resize the buffer
- *   if needed.
- * * OK_BUFFER - This macro returns TRUE if it is OK to write to the buffer, otherwise
- *   FALSE when the buffer is too large, is not specified, or some other error has
- *   occurred.
- * * ADVANCE_BUFFER - This macro is passed the number of bytes written to the buffer
- *   and should increment the "buffer" pointer and "usedLength" counter.
- * In addition to these macros, the "buffer" and "usedLength" variables are assumed to
- * be present.
+ * There are three macros defined by the parent function which control how this code writes the
+ * formatted string:
+ * * ENSURE_BUFFER - This macro is passed the number of bytes required whenever characters need to
+ *   be written to the buffer. The macro can resize the buffer if needed.
+ * * OK_BUFFER - This macro returns TRUE if it is OK to write to the buffer, otherwise FALSE when
+ *   the buffer is too large, is not specified, or some other error has occurred.
+ * * ADVANCE_BUFFER - This macro is passed the number of bytes written to the buffer and should
+ *   increment the "buffer" pointer and "usedLength" counter.
+ * In addition to these macros, the "buffer" and "usedLength" variables are assumed to be present.
  *
- * The below code defines many macros; this is so that composite formatting types can
- * be constructed (e.g. the "size" type).
+ * The below code defines many macros; this is so that composite formatting types can be constructed
+ * (e.g. the "size" type).
  */
 
 {
@@ -24,18 +20,14 @@
     {
         WCHAR localeBuffer[4];
 
-        if (
-            GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SDECIMAL, localeBuffer, 4) &&
-            (localeBuffer[0] != 0 && localeBuffer[1] == 0)
-            )
+        if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SDECIMAL, localeBuffer, 4) &&
+            (localeBuffer[0] != 0 && localeBuffer[1] == 0))
         {
             PhpFormatDecimalSeparator = localeBuffer[0];
         }
 
-        if (
-            GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_STHOUSAND, localeBuffer, 4) &&
-            (localeBuffer[0] != 0 && localeBuffer[1] == 0)
-            )
+        if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_STHOUSAND, localeBuffer, 4) &&
+            (localeBuffer[0] != 0 && localeBuffer[1] == 0))
         {
             PhpFormatThousandSeparator = localeBuffer[0];
         }
@@ -57,8 +49,7 @@
 
         format = Format++;
 
-        // Save the currently used length so we can compute the
-        // part length later.
+        // Save the currently used length so we can compute the part length later.
         partLength = usedLength;
 
         flags = 0;
@@ -316,9 +307,6 @@ CommonInt64Format:
         else if ((Format)->Type & FormatHexadecimalForm) \
             c = 'a'; \
         \
-        if ((Format)->Type & FormatUpperCase) \
-            c -= 32; /* uppercase the format type */ \
-        \
         /* Use MS CRT routines to do the work. */ \
         \
         value = (Format)->u.Double; \
@@ -336,7 +324,7 @@ CommonInt64Format:
         /* if (((Format)->Type & FormatForceDecimalPoint) && precision == 0) */ \
              /* _forcdecpt_l(tempBufferAnsi, PhpFormatUserLocale); */ \
         if ((Format)->Type & FormatCropZeros) \
-            _cropzeros_l(temp, PhpFormatUserLocale); \
+            PhpCropZeros(temp, PhpFormatUserLocale); \
         \
         length = (ULONG)strlen(temp); \
         \
@@ -501,7 +489,7 @@ CommonInt64Format:
                     maxSizeUnit = PhMaxSizeUnit;
 
                 while (
-                    s >= 1024 &&
+                    s >= 1000 &&
                     i < sizeof(PhpSizeUnitNamesCounted) / sizeof(PH_STRINGREF) &&
                     i < maxSizeUnit
                     )
@@ -557,16 +545,16 @@ ContinueLoop:
 
                     if (format->Type & FormatLeftAlign)
                     {
-                        // Left alignment is easy; we just fill the remaining space
-                        // with the pad character.
+                        // Left alignment is easy; we just fill the remaining space with the pad
+                        // character.
                         wmemset(buffer, pad, addLength / sizeof(WCHAR));
                     }
                     else
                     {
                         PWSTR start;
 
-                        // Right alignment is much slower and involves moving the
-                        // text forward, then filling in the space before it.
+                        // Right alignment is much slower and involves moving the text forward, then
+                        // filling in the space before it.
                         start = buffer - partLength / sizeof(WCHAR);
                         memmove(start + addLength / sizeof(WCHAR), start, partLength);
                         wmemset(start, pad, addLength / sizeof(WCHAR));

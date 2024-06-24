@@ -21,7 +21,7 @@
  */
 
 #include "exttools.h"
-#include "resource.h"
+#include <workqueue.h>
 #include <symprv.h>
 
 typedef struct _WS_WATCH_CONTEXT
@@ -182,7 +182,7 @@ static VOID EtpQueueSymbolLookup(
     result->Address = Address;
     EtpReferenceWsWatchContext(Context);
 
-    PhQueueItemGlobalWorkQueue(EtpSymbolLookupFunction, result);
+    PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), EtpSymbolLookupFunction, result);
 }
 
 static PPH_STRING EtpGetBasicSymbol(

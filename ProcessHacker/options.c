@@ -2,7 +2,7 @@
  * Process Hacker -
  *   options window
  *
- * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,9 +21,11 @@
  */
 
 #include <phapp.h>
+#include <proctree.h>
 #include <settings.h>
 #include <colorbox.h>
 #include <sysinfo.h>
+#include <commdlg.h>
 #include <windowsx.h>
 
 #define WM_PH_CHILD_EXIT (WM_APP + 301)
@@ -84,6 +86,9 @@ static POINT StartLocation;
 static WNDPROC OldWndProc;
 
 // General
+static PH_STRINGREF CurrentUserRunKeyName = PH_STRINGREF_INIT(L"Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+static BOOLEAN CurrentUserRunPresent;
+static BOOLEAN CurrentUserRunStartHidden;
 static HFONT CurrentFontInstance;
 static PPH_STRING NewFontSelection;
 
@@ -107,7 +112,6 @@ VOID PhShowOptionsDialog(
     propSheetHeader.dwFlags =
         PSH_NOAPPLYNOW |
         PSH_NOCONTEXTHELP |
-        PSH_PROPTITLE |
         PSH_USECALLBACK |
         PSH_USEPSTARTPAGE;
     propSheetHeader.hwndParent = ParentWindowHandle;
@@ -176,7 +180,7 @@ VOID PhShowOptionsDialog(
 
     OldTaskMgrDebugger = NULL;
 
-    PropertySheet(&propSheetHeader);
+    PhModalPropertySheet(&propSheetHeader);
 
     if (PressedOk)
     {
@@ -290,8 +294,6 @@ static VOID PhpPageInit(
                 SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOSIZE | SWP_NOZORDER);
         }
 
-        SetWindowText(optionsWindow, L"Options"); // so the title isn't "Options Properties"
-
         PageInit = TRUE;
     }
 }
@@ -367,19 +369,102 @@ static BOOLEAN GetCurrentFont(
     PPH_STRING fontHexString;
 
     if (NewFontSelection)
-        PhSetReference(&fontHexString, NewFontSelection);
+        fontHexString = NewFontSelection;
     else
-        fontHexString = PhGetStringSetting(L"Font");
+        fontHexString = PhaGetStringSetting(L"Font");
 
     if (fontHexString->Length / 2 / 2 == sizeof(LOGFONT))
         result = PhHexStringToBuffer(&fontHexString->sr, (PUCHAR)Font);
     else
         result = FALSE;
 
-    PhDereferenceObject(fontHexString);
-
     return result;
 }
+
+static VOID ReadCurrentUserRun(
+    VOID
+    )
+{
+    HANDLE keyHandle;
+    PPH_STRING value;
+
+    CurrentUserRunPresent = FALSE;
+    CurrentUserRunStartHidden = FALSE;
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_READ,
+        PH_KEY_CURRENT_USER,
+        &CurrentUserRunKeyName,
+        0
+        )))
+    {
+        if (value = PhQueryRegistryString(keyHandle, L"Process Hacker 2"))
+        {
+            PH_STRINGREF fileName;
+            PH_STRINGREF arguments;
+            PPH_STRING fullFileName;
+
+            PH_AUTO(value);
+
+            if (PhParseCommandLineFuzzy(&value->sr, &fileName, &arguments, &fullFileName))
+            {
+                PH_AUTO(fullFileName);
+
+                if (fullFileName && PhEqualString(fullFileName, PhApplicationFileName, TRUE))
+                {
+                    CurrentUserRunPresent = TRUE;
+                    CurrentUserRunStartHidden = PhEqualStringRef2(&arguments, L"-hide", FALSE);
+                }
+            }
+        }
+
+        NtClose(keyHandle);
+    }
+}
+
+static VOID WriteCurrentUserRun(
+    _In_ BOOLEAN Present,
+    _In_ BOOLEAN StartHidden
+    )
+{
+    HANDLE keyHandle;
+
+    if (CurrentUserRunPresent == Present && (!Present || CurrentUserRunStartHidden == StartHidden))
+        return;
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_WRITE,
+        PH_KEY_CURRENT_USER,
+        &CurrentUserRunKeyName,
+        0
+        )))
+    {
+        UNICODE_STRING valueName;
+
+        RtlInitUnicodeString(&valueName, L"Process Hacker 2");
+
+        if (Present)
+        {
+            PPH_STRING value;
+
+            value = PH_AUTO(PhConcatStrings(3, L"\"", PhApplicationFileName->Buffer, L"\""));
+
+            if (StartHidden)
+                value = PhaConcatStrings2(value->Buffer, L" -hide");
+
+            NtSetValueKey(keyHandle, &valueName, 0, REG_SZ, value->Buffer, (ULONG)value->Length + 2);
+        }
+        else
+        {
+            NtDeleteValueKey(keyHandle, &valueName);
+        }
+
+        NtClose(keyHandle);
+    }
+}
+
 
 INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
     _In_ HWND hwndDlg,
@@ -416,11 +501,24 @@ INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
             SetDlgItemCheckForSetting(hwndDlg, IDC_ALLOWONLYONEINSTANCE, L"AllowOnlyOneInstance");
             SetDlgItemCheckForSetting(hwndDlg, IDC_HIDEONCLOSE, L"HideOnClose");
             SetDlgItemCheckForSetting(hwndDlg, IDC_HIDEONMINIMIZE, L"HideOnMinimize");
-            SetDlgItemCheckForSetting(hwndDlg, IDC_STARTHIDDEN, L"StartHidden");
             SetDlgItemCheckForSetting(hwndDlg, IDC_COLLAPSESERVICES, L"CollapseServicesOnStart");
             SetDlgItemCheckForSetting(hwndDlg, IDC_ICONSINGLECLICK, L"IconSingleClick");
             SetDlgItemCheckForSetting(hwndDlg, IDC_ICONTOGGLESVISIBILITY, L"IconTogglesVisibility");
             SetDlgItemCheckForSetting(hwndDlg, IDC_ENABLEPLUGINS, L"EnablePlugins");
+
+            ReadCurrentUserRun();
+
+            if (CurrentUserRunPresent)
+            {
+                Button_SetCheck(GetDlgItem(hwndDlg, IDC_STARTATLOGON), BST_CHECKED);
+
+                if (CurrentUserRunStartHidden)
+                    Button_SetCheck(GetDlgItem(hwndDlg, IDC_STARTHIDDEN), BST_CHECKED);
+            }
+            else
+            {
+                EnableWindow(GetDlgItem(hwndDlg, IDC_STARTHIDDEN), FALSE);
+            }
 
             // Set the font of the button for a nice preview.
             if (GetCurrentFont(&font))
@@ -444,6 +542,11 @@ INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
         {
             switch (LOWORD(wParam))
             {
+            case IDC_STARTATLOGON:
+                {
+                    EnableWindow(GetDlgItem(hwndDlg, IDC_STARTHIDDEN), Button_GetCheck(GetDlgItem(hwndDlg, IDC_STARTATLOGON)) == BST_CHECKED);
+                }
+                break;
             case IDC_FONT:
                 {
                     LOGFONT font;
@@ -488,6 +591,9 @@ INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
             {
             case PSN_APPLY:
                 {
+                    BOOLEAN startAtLogon;
+                    BOOLEAN startHidden;
+
                     PhSetStringSetting2(L"SearchEngine", &(PhaGetDlgItemText(hwndDlg, IDC_SEARCHENGINE)->sr));
                     PhSetStringSetting2(L"ProgramInspectExecutables", &(PhaGetDlgItemText(hwndDlg, IDC_PEVIEWER)->sr));
                     PhSetIntegerSetting(L"MaxSizeUnit", PhMaxSizeUnit = ComboBox_GetCurSel(GetDlgItem(hwndDlg, IDC_MAXSIZEUNIT)));
@@ -495,11 +601,14 @@ INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
                     SetSettingForDlgItemCheck(hwndDlg, IDC_ALLOWONLYONEINSTANCE, L"AllowOnlyOneInstance");
                     SetSettingForDlgItemCheck(hwndDlg, IDC_HIDEONCLOSE, L"HideOnClose");
                     SetSettingForDlgItemCheck(hwndDlg, IDC_HIDEONMINIMIZE, L"HideOnMinimize");
-                    SetSettingForDlgItemCheck(hwndDlg, IDC_STARTHIDDEN, L"StartHidden");
                     SetSettingForDlgItemCheck(hwndDlg, IDC_COLLAPSESERVICES, L"CollapseServicesOnStart");
                     SetSettingForDlgItemCheck(hwndDlg, IDC_ICONSINGLECLICK, L"IconSingleClick");
                     SetSettingForDlgItemCheck(hwndDlg, IDC_ICONTOGGLESVISIBILITY, L"IconTogglesVisibility");
                     SetSettingForDlgItemCheckRestartRequired(hwndDlg, IDC_ENABLEPLUGINS, L"EnablePlugins");
+
+                    startAtLogon = Button_GetCheck(GetDlgItem(hwndDlg, IDC_STARTATLOGON)) == BST_CHECKED;
+                    startHidden = Button_GetCheck(GetDlgItem(hwndDlg, IDC_STARTHIDDEN)) == BST_CHECKED;
+                    WriteCurrentUserRun(startAtLogon, startHidden);
 
                     if (NewFontSelection)
                     {
@@ -530,9 +639,9 @@ static BOOLEAN PathMatchesPh(
     }
     // Allow for a quoted value.
     else if (
-        OldTaskMgrDebugger->Length == PhApplicationFileName->Length + 4 &&
+        OldTaskMgrDebugger->Length == PhApplicationFileName->Length + sizeof(WCHAR) * 2 &&
         OldTaskMgrDebugger->Buffer[0] == '"' &&
-        OldTaskMgrDebugger->Buffer[OldTaskMgrDebugger->Length / 2 - 1] == '"'
+        OldTaskMgrDebugger->Buffer[OldTaskMgrDebugger->Length / sizeof(WCHAR) - 1] == '"'
         )
     {
         PH_STRINGREF partInside;
@@ -574,7 +683,7 @@ VOID PhpAdvancedPageLoad(
 
     changeButton = GetDlgItem(hwndDlg, IDC_CHANGE);
 
-    if (PhElevated)
+    if (PhGetOwnTokenAttributes().Elevated)
     {
         ShowWindow(changeButton, SW_HIDE);
     }
@@ -611,8 +720,7 @@ VOID PhpAdvancedPageLoad(
             0
             )))
         {
-            if (OldTaskMgrDebugger)
-                PhDereferenceObject(OldTaskMgrDebugger);
+            PhClearReference(&OldTaskMgrDebugger);
 
             if (OldTaskMgrDebugger = PhQueryRegistryString(taskmgrKeyHandle, L"Debugger"))
             {
@@ -686,9 +794,8 @@ VOID PhpAdvancedPageSave(
                 {
                     PPH_STRING quotedFileName;
 
-                    quotedFileName = PhConcatStrings(3, L"\"", PhApplicationFileName->Buffer, L"\"");
+                    quotedFileName = PH_AUTO(PhConcatStrings(3, L"\"", PhApplicationFileName->Buffer, L"\""));
                     status = NtSetValueKey(taskmgrKeyHandle, &valueName, 0, REG_SZ, quotedFileName->Buffer, (ULONG)quotedFileName->Length + 2);
-                    PhDereferenceObject(quotedFileName);
                 }
                 else
                 {
@@ -765,8 +872,7 @@ INT_PTR CALLBACK PhpOptionsAdvancedDlgProc(
         break;
     case WM_DESTROY:
         {
-            if (OldTaskMgrDebugger)
-                PhDereferenceObject(OldTaskMgrDebugger);
+            PhClearReference(&OldTaskMgrDebugger);
         }
         break;
     case WM_COMMAND:
@@ -864,15 +970,13 @@ INT_PTR CALLBACK PhpOptionsSymbolsDlgProc(
                     fileDialog = PhCreateOpenFileDialog();
                     PhSetFileDialogFilter(fileDialog, filters, sizeof(filters) / sizeof(PH_FILETYPE_FILTER));
 
-                    fileName = PhGetFileName(PhaGetDlgItemText(hwndDlg, IDC_DBGHELPPATH));
+                    fileName = PH_AUTO(PhGetFileName(PhaGetDlgItemText(hwndDlg, IDC_DBGHELPPATH)));
                     PhSetFileDialogFileName(fileDialog, fileName->Buffer);
-                    PhDereferenceObject(fileName);
 
                     if (PhShowFileDialog(hwndDlg, fileDialog))
                     {
-                        fileName = PhGetFileDialogFileName(fileDialog);
+                        fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
                         SetDlgItemText(hwndDlg, IDC_DBGHELPPATH, fileName->Buffer);
-                        PhDereferenceObject(fileName);
                     }
 
                     PhFreeFileDialog(fileDialog);
@@ -889,13 +993,9 @@ INT_PTR CALLBACK PhpOptionsSymbolsDlgProc(
             {
             case PSN_APPLY:
                 {
-                    PPH_STRING dbgHelpPath;
-                    PPH_STRING existingDbgHelpPath;
+                    PPH_STRING dbgHelpPath = PhaGetDlgItemText(hwndDlg, IDC_DBGHELPPATH);
 
-                    dbgHelpPath = PhaGetDlgItemText(hwndDlg, IDC_DBGHELPPATH);
-                    existingDbgHelpPath = PhAutoDereferenceObject(PhGetStringSetting(L"DbgHelpPath"));
-
-                    if (!PhEqualString(dbgHelpPath, existingDbgHelpPath, TRUE))
+                    if (!PhEqualString(dbgHelpPath, PhaGetStringSetting(L"DbgHelpPath"), TRUE))
                         RestartRequired = TRUE;
 
                     PhSetStringSetting2(L"DbgHelpPath", &dbgHelpPath->sr);
@@ -931,24 +1031,23 @@ typedef struct _COLOR_ITEM
 
 static COLOR_ITEM ColorItems[] =
 {
-    COLOR_ITEM(L"ColorOwnProcesses", L"Own Processes", L"Processes running under the same user account as Process Hacker."),
-    COLOR_ITEM(L"ColorSystemProcesses", L"System Processes", L"Processes running under the NT AUTHORITY\\SYSTEM user account."),
-    COLOR_ITEM(L"ColorServiceProcesses", L"Service Processes", L"Processes which host one or more services."),
-    COLOR_ITEM(L"ColorJobProcesses", L"Job Processes", L"Processes associated with a job."),
+    COLOR_ITEM(L"ColorOwnProcesses", L"Own processes", L"Processes running under the same user account as Process Hacker."),
+    COLOR_ITEM(L"ColorSystemProcesses", L"System processes", L"Processes running under the NT AUTHORITY\\SYSTEM user account."),
+    COLOR_ITEM(L"ColorServiceProcesses", L"Service processes", L"Processes which host one or more services."),
+    COLOR_ITEM(L"ColorJobProcesses", L"Job processes", L"Processes associated with a job."),
 #ifdef _WIN64
-    COLOR_ITEM(L"ColorWow64Processes", L"32-bit Processes", L"Processes running under WOW64, i.e. 32-bit."),
+    COLOR_ITEM(L"ColorWow64Processes", L"32-bit processes", L"Processes running under WOW64, i.e. 32-bit."),
 #endif
-    COLOR_ITEM(L"ColorPosixProcesses", L"POSIX Processes", L"Processes running under the POSIX subsystem."),
-    COLOR_ITEM(L"ColorDebuggedProcesses", L"Debugged Processes", L"Processes that are currently being debugged."),
-    COLOR_ITEM(L"ColorElevatedProcesses", L"Elevated Processes", L"Processes with full privileges on a system with UAC enabled."),
-    COLOR_ITEM(L"ColorImmersiveProcesses", L"Immersive Processes and DLLs", L"Processes and DLLs that belong to a Modern UI app."),
-    COLOR_ITEM(L"ColorSuspended", L"Suspended Processes and Threads", L"Processes and threads that are suspended from execution."),
-    COLOR_ITEM(L"ColorDotNet", L".NET Processes and DLLs", L".NET (i.e. managed) processes and DLLs."),
-    COLOR_ITEM(L"ColorPacked", L"Packed Processes", L"Executables are sometimes \"packed\" to reduce their size."),
-    COLOR_ITEM(L"ColorGuiThreads", L"GUI Threads", L"Threads that have made at least one GUI-related system call."),
+    COLOR_ITEM(L"ColorDebuggedProcesses", L"Debugged processes", L"Processes that are currently being debugged."),
+    COLOR_ITEM(L"ColorElevatedProcesses", L"Elevated processes", L"Processes with full privileges on a system with UAC enabled."),
+    COLOR_ITEM(L"ColorImmersiveProcesses", L"Immersive processes and DLLs", L"Processes and DLLs that belong to a Modern UI app."),
+    COLOR_ITEM(L"ColorSuspended", L"Suspended processes and threads", L"Processes and threads that are suspended from execution."),
+    COLOR_ITEM(L"ColorDotNet", L".NET processes and DLLs", L".NET (i.e. managed) processes and DLLs."),
+    COLOR_ITEM(L"ColorPacked", L"Packed processes", L"Executables are sometimes \"packed\" to reduce their size."),
+    COLOR_ITEM(L"ColorGuiThreads", L"GUI threads", L"Threads that have made at least one GUI-related system call."),
     COLOR_ITEM(L"ColorRelocatedModules", L"Relocated DLLs", L"DLLs that were not loaded at their preferred image bases."),
-    COLOR_ITEM(L"ColorProtectedHandles", L"Protected Handles", L"Handles that are protected from being closed."),
-    COLOR_ITEM(L"ColorInheritHandles", L"Inheritable Handles", L"Handles that can be inherited by child processes.")
+    COLOR_ITEM(L"ColorProtectedHandles", L"Protected handles", L"Handles that are protected from being closed."),
+    COLOR_ITEM(L"ColorInheritHandles", L"Inheritable handles", L"Handles that can be inherited by child processes.")
 };
 
 COLORREF NTAPI PhpColorItemColorFunction(
@@ -1003,8 +1102,6 @@ INT_PTR CALLBACK PhpOptionsHighlightingDlgProc(
                 ColorItems[i].CurrentUse = !!PhGetIntegerSetting(ColorItems[i].UseSettingName);
                 ListView_SetCheckState(HighlightingListViewHandle, lvItemIndex, ColorItems[i].CurrentUse);
             }
-
-            EnableWindow(GetDlgItem(hwndDlg, IDC_ENABLE), FALSE);
         }
         break;
     case WM_COMMAND:

@@ -21,26 +21,12 @@
  */
 
 #include <phbase.h>
+#include <handle.h>
 #include <handlep.h>
 
+static PH_INITONCE PhHandleTableInitOnce = PH_INITONCE_INIT;
 static PH_FREE_LIST PhHandleTableLevel0FreeList;
 static PH_FREE_LIST PhHandleTableLevel1FreeList;
-
-VOID PhHandleTableInitialization(
-    VOID
-    )
-{
-    PhInitializeFreeList(
-        &PhHandleTableLevel0FreeList,
-        sizeof(PH_HANDLE_TABLE_ENTRY) * PH_HANDLE_TABLE_LEVEL_ENTRIES,
-        64
-        );
-    PhInitializeFreeList(
-        &PhHandleTableLevel1FreeList,
-        sizeof(PPH_HANDLE_TABLE_ENTRY) * PH_HANDLE_TABLE_LEVEL_ENTRIES,
-        64
-        );
-}
 
 PPH_HANDLE_TABLE PhCreateHandleTable(
     VOID
@@ -48,6 +34,21 @@ PPH_HANDLE_TABLE PhCreateHandleTable(
 {
     PPH_HANDLE_TABLE handleTable;
     ULONG i;
+
+    if (PhBeginInitOnce(&PhHandleTableInitOnce))
+    {
+        PhInitializeFreeList(
+            &PhHandleTableLevel0FreeList,
+            sizeof(PH_HANDLE_TABLE_ENTRY) * PH_HANDLE_TABLE_LEVEL_ENTRIES,
+            64
+            );
+        PhInitializeFreeList(
+            &PhHandleTableLevel1FreeList,
+            sizeof(PPH_HANDLE_TABLE_ENTRY) * PH_HANDLE_TABLE_LEVEL_ENTRIES,
+            64
+            );
+        PhEndInitOnce(&PhHandleTableInitOnce);
+    }
 
 #ifdef PH_HANDLE_TABLE_SAFE
     handleTable = PhAllocateSafe(sizeof(PH_HANDLE_TABLE));
@@ -59,7 +60,7 @@ PPH_HANDLE_TABLE PhCreateHandleTable(
 #endif
 
     PhInitializeQueuedLock(&handleTable->Lock);
-    PhInitializeQueuedLock(&handleTable->HandleWakeEvent);
+    PhInitializeWakeEvent(&handleTable->HandleWakeEvent);
 
     handleTable->NextValue = 0;
 
@@ -74,11 +75,9 @@ PPH_HANDLE_TABLE PhCreateHandleTable(
     }
 #endif
 
-    // We have now created the level 0 table.
-    // The free list can now be set up to point to handle 0, which
-    // points to the rest of the free list (1 -> 2 -> 3 -> ...).
-    // The next batch of handles that need to be created start at
-    // PH_HANDLE_TABLE_LEVEL_ENTRIES.
+    // We have now created the level 0 table. The free list can now be set up to point to handle 0,
+    // which points to the rest of the free list (1 -> 2 -> 3 -> ...). The next batch of handles
+    // that need to be created start at PH_HANDLE_TABLE_LEVEL_ENTRIES.
 
     handleTable->FreeValue = 0;
     handleTable->NextValue = PH_HANDLE_TABLE_LEVEL_ENTRIES;
@@ -246,15 +245,14 @@ HANDLE PhCreateHandle(
 
     // Copy the given handle table entry to the allocated entry.
 
-    // All free entries have the Free type and have the (not) locked
-    // bit clear. There is no problem with setting the Type now;
-    // the entry is still locked, so they will block.
+    // All free entries have the Free type and have the (not) locked bit clear. There is no problem
+    // with setting the Type now; the entry is still locked, so they will block.
     entry->TypeAndValue.Type = PH_HANDLE_TABLE_ENTRY_IN_USE;
     entry->TypeAndValue.Value = HandleTableEntry->TypeAndValue.Value;
     entry->Value2 = HandleTableEntry->Value2;
 
-    // Now we unlock this entry, waking anyone who was caught back
-    // there before we had finished setting up the entry.
+    // Now we unlock this entry, waking anyone who was caught back there before we had finished
+    // setting up the entry.
     PhUnlockHandleTableEntry(HandleTable, entry);
 
     return PhpEncodeHandle(handleValue);
@@ -286,9 +284,8 @@ BOOLEAN PhDestroyHandle(
         (PVOID)PH_HANDLE_TABLE_ENTRY_FREE
         );
 
-    // The handle table entry is now free; wake any waiters because they
-    // can't lock the entry now. Any future lock attempts will fail because
-    // the entry is marked as being free.
+    // The handle table entry is now free; wake any waiters because they can't lock the entry now.
+    // Any future lock attempts will fail because the entry is marked as being free.
     PhSetWakeEvent(&HandleTable->HandleWakeEvent, NULL);
 
     PhpFreeHandleTableEntry(HandleTable, handleValue, HandleTableEntry);
@@ -504,8 +501,7 @@ PPH_HANDLE_TABLE_ENTRY PhpAllocateHandleTableEntry(
                 break;
             }
 
-            // Move handles from the alt. free list to the main free list,
-            // and check again.
+            // Move handles from the alt. free list to the main free list, and check again.
 
             freeValue = PhpMoveFreeHandleTableEntries(HandleTable);
 
@@ -521,11 +517,9 @@ PPH_HANDLE_TABLE_ENTRY PhpAllocateHandleTableEntry(
 
             freeValue = HandleTable->FreeValue;
 
-            // Note that PhpAllocateMoreHandleTableEntries only
-            // returns FALSE if it failed to allocate memory.
-            // Success does not guarantee a free handle to be
-            // allocated, as they may have been all used up (however
-            // unlikely) when we reach this point. Success simply
+            // Note that PhpAllocateMoreHandleTableEntries only returns FALSE if it failed to
+            // allocate memory. Success does not guarantee a free handle to be allocated, as they
+            // may have been all used up (however unlikely) when we reach this point. Success simply
             // means to retry the allocation using the fast path.
 
             if (!result && freeValue == PH_HANDLE_VALUE_INVALID)
@@ -535,20 +529,18 @@ PPH_HANDLE_TABLE_ENTRY PhpAllocateHandleTableEntry(
         entry = PhpLookupHandleTableEntry(HandleTable, freeValue);
         lockIndex = PH_HANDLE_TABLE_LOCK_INDEX(freeValue);
 
-        // To avoid the ABA problem, we would ideally have one
-        // queued lock per handle table entry. That would make the
-        // overhead too large, so instead there is a fixed number of
-        // locks, indexed by the handle value (mod no. locks).
+        // To avoid the ABA problem, we would ideally have one queued lock per handle table entry.
+        // That would make the overhead too large, so instead there is a fixed number of locks,
+        // indexed by the handle value (mod no. locks).
 
         // Possibilities at this point:
-        // 1. freeValue != A (our copy), but the other thread has freed
-        // A, so FreeValue = A. No ABA problem since freeValue != A.
+        // 1. freeValue != A (our copy), but the other thread has freed A, so FreeValue = A. No ABA
+        // problem since freeValue != A.
         // 2. freeValue != A, and FreeValue != A. No ABA problem.
-        // 3. freeValue = A, and the other thread has freed A, so
-        // FreeValue = A. No ABA problem since we haven't read
-        // NextFreeValue yet.
-        // 4. freeValue = A, and FreeValue != A. No problem if this
-        // stays the same later, as the CAS will take care of it.
+        // 3. freeValue = A, and the other thread has freed A, so FreeValue = A. No ABA problem
+        // since we haven't read NextFreeValue yet.
+        // 4. freeValue = A, and FreeValue != A. No problem if this stays the same later, as the CAS
+        // will take care of it.
 
         PhpLockHandleTableShared(HandleTable, lockIndex);
 
@@ -563,16 +555,13 @@ PPH_HANDLE_TABLE_ENTRY PhpAllocateHandleTableEntry(
         nextFreeValue = entry->NextFreeValue;
 
         // Possibilities/non-possibilities at this point:
-        // 1. freeValue != A (our copy), but the other thread has freed
-        // A, so FreeValue = A. This is actually impossible since we
-        // have acquired the lock on A and the free code checks that
+        // 1. freeValue != A (our copy), but the other thread has freed A, so FreeValue = A. This is
+        // actually impossible since we have acquired the lock on A and the free code checks that
         // and uses the alt. free list instead.
         // 2. freeValue != A, and FreeValue != A. No ABA problem.
-        // 3. freeValue = A, and the other thread has freed A, so
-        // FreeValue = A. Impossible like above. This is *the* ABA
-        // problem which we have now prevented.
-        // 4. freeValue = A, and FreeValue != A. CAS will take care
-        // of it.
+        // 3. freeValue = A, and the other thread has freed A, so FreeValue = A. Impossible like
+        // above. This is *the* ABA problem which we have now prevented.
+        // 4. freeValue = A, and FreeValue != A. CAS will take care of it.
 
         oldFreeValue = _InterlockedCompareExchange(
             &HandleTable->FreeValue,
@@ -607,10 +596,9 @@ VOID PhpFreeHandleTableEntry(
 
     flags = HandleTable->Flags;
 
-    // Choose the free list to use depending on whether someone
-    // is popping from the main free list (see
-    // PhpAllocateHandleTableEntry for details). We always use
-    // the alt. free list if strict FIFO is enabled.
+    // Choose the free list to use depending on whether someone is popping from the main free list
+    // (see PhpAllocateHandleTableEntry for details). We always use the alt. free list if strict
+    // FIFO is enabled.
     if (!(flags & PH_HANDLE_TABLE_STRICT_FIFO) &&
         PhTryAcquireReleaseQueuedLockExclusive(
         &HandleTable->Locks[PH_HANDLE_TABLE_LOCK_INDEX(HandleValue)]))
@@ -672,8 +660,7 @@ BOOLEAN PhpAllocateMoreHandleTableEntries(
                 return FALSE;
 #endif
 
-            // Create a new level 0 table and move the existing level into
-            // the new level 1 table.
+            // Create a new level 0 table and move the existing level into the new level 1 table.
 
             table0 = PhpCreateHandleTableLevel0(HandleTable, Initialize);
 
@@ -697,8 +684,7 @@ BOOLEAN PhpAllocateMoreHandleTableEntries(
         {
             table1 = (PPH_HANDLE_TABLE_ENTRY *)tableValue;
 
-            // Determine whether we need to create a new level 0 table or
-            // create a level 2 table.
+            // Determine whether we need to create a new level 0 table or create a level 2 table.
 
             i = HandleTable->NextValue / PH_HANDLE_TABLE_LEVEL_ENTRIES;
 
@@ -725,8 +711,8 @@ BOOLEAN PhpAllocateMoreHandleTableEntries(
                     return FALSE;
 #endif
 
-                // Create a new level 1 table and move the existing level into
-                // the new level 2 table.
+                // Create a new level 1 table and move the existing level into the new level 2
+                // table.
 
                 table1 = PhpCreateHandleTableLevel1(HandleTable);
 
@@ -766,16 +752,14 @@ BOOLEAN PhpAllocateMoreHandleTableEntries(
 
             i = HandleTable->NextValue /
                 (PH_HANDLE_TABLE_LEVEL_ENTRIES * PH_HANDLE_TABLE_LEVEL_ENTRIES);
-            // i contains an index into the level 2 table, of the containing
-            // level 1 table.
+            // i contains an index into the level 2 table, of the containing level 1 table.
 
             // Check if we have exceeded the maximum number of handles.
 
             if (i >= PH_HANDLE_TABLE_LEVEL_ENTRIES)
                 return FALSE;
 
-            // Check if we should create a new level 0 table or a new level 2
-            // table.
+            // Check if we should create a new level 0 table or a new level 2 table.
             if (table2[i])
             {
                 table0 = PhpCreateHandleTableLevel0(HandleTable, Initialize);
@@ -785,13 +769,13 @@ BOOLEAN PhpAllocateMoreHandleTableEntries(
                     return FALSE;
 #endif
 
-                // Same as j = HandleTable->NextValue % (no. entries * no. entries),
-                // but we already calculated i so just use it.
+                // Same as j = HandleTable->NextValue % (no. entries * no. entries), but we already
+                // calculated i so just use it.
                 j = HandleTable->NextValue - i *
                     (PH_HANDLE_TABLE_LEVEL_ENTRIES * PH_HANDLE_TABLE_LEVEL_ENTRIES);
                 j /= PH_HANDLE_TABLE_LEVEL_ENTRIES;
-                // j now contains an index into the level 1 table, of the containing
-                // level 0 table (the one which was created).
+                // j now contains an index into the level 1 table, of the containing level 0 table
+                // (the one which was created).
 
                 //_InterlockedExchangePointer((PVOID *)&table2[i][j], table0);
                 table2[i][j] = table0;
@@ -876,8 +860,7 @@ PPH_HANDLE_TABLE_ENTRY PhpLookupHandleTableEntry(
     tableLevel = tableValue & PH_HANDLE_TABLE_LEVEL_MASK;
     tableValue -= tableLevel;
 
-    // No additional checking needed; aleady checked against
-    // NextValue.
+    // No additional checking needed; aleady checked against NextValue.
 
     switch (tableLevel)
     {
@@ -933,10 +916,8 @@ ULONG PhpMoveFreeHandleTableEntries(
         return PH_HANDLE_VALUE_INVALID;
     }
 
-    // Avoid the ABA problem by testing all locks (see
-    // PhpAllocateHandleTableEntry for details). Unlike
-    // in PhpFreeHandleTableEntry we have no "alternative"
-    // list, so we must allow blocking.
+    // Avoid the ABA problem by testing all locks (see PhpAllocateHandleTableEntry for details).
+    // Unlike in PhpFreeHandleTableEntry we have no "alternative" list, so we must allow blocking.
     for (i = 0; i < PH_HANDLE_TABLE_LOCKS; i++)
         PhAcquireReleaseQueuedLockExclusive(&HandleTable->Locks[i]);
 
@@ -944,8 +925,8 @@ ULONG PhpMoveFreeHandleTableEntries(
 
     if (!(flags & PH_HANDLE_TABLE_STRICT_FIFO))
     {
-        // Shortcut: if there are no entries in the main free list and
-        // we don't need to reverse the chain, just return.
+        // Shortcut: if there are no entries in the main free list and we don't need to reverse the
+        // chain, just return.
         if (_InterlockedCompareExchange(
             &HandleTable->FreeValue,
             freeValueAlt,
@@ -954,9 +935,8 @@ ULONG PhpMoveFreeHandleTableEntries(
             return freeValueAlt;
     }
 
-    // Reverse the chain (even if strict FIFO is off; we have to
-    // traverse the list to find the last entry, so we might as well
-    // reverse it along the way).
+    // Reverse the chain (even if strict FIFO is off; we have to traverse the list to find the last
+    // entry, so we might as well reverse it along the way).
 
     index = freeValueAlt;
     lastIndex = PH_HANDLE_VALUE_INVALID;
@@ -980,10 +960,8 @@ ULONG PhpMoveFreeHandleTableEntries(
         index = nextIndex;
     }
 
-    // Note that firstEntry actually contains the last free
-    // entry, since we reversed the list. Similarly
-    // index/lastIndex both contain the index of the first
-    // free entry.
+    // Note that firstEntry actually contains the last free entry, since we reversed the list.
+    // Similarly index/lastIndex both contain the index of the first free entry.
 
     // Push the entries onto the free list.
     while (TRUE)

@@ -2,7 +2,7 @@
  * Process Hacker -
  *   main program
  *
- * Copyright (C) 2009-2012 wj32
+ * Copyright (C) 2009-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,8 +21,18 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
+#include <srvprv.h>
+#include <netprv.h>
+#include <modprv.h>
+#include <thrdprv.h>
+#include <hndlprv.h>
+#include <memprv.h>
 #include <kphuser.h>
+#include <lsasup.h>
+#include <hndlinfo.h>
 #include <phsvc.h>
+#include <procprv.h>
 #include <settings.h>
 #include <extmgri.h>
 #include <hexedit.h>
@@ -91,9 +101,12 @@ INT WINAPI wWinMain(
 #ifdef DEBUG
     PHP_BASE_THREAD_DBG dbg;
 #endif
+    HANDLE currentTokenHandle;
 
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+#ifndef DEBUG
     SetErrorMode(SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#endif
 
     PhInstanceHandle = (HINSTANCE)NtCurrentPeb()->ImageBaseAddress;
 
@@ -104,11 +117,13 @@ INT WINAPI wWinMain(
 
     PhInitializeCommonControls();
 
-    if (PhCurrentTokenQueryHandle)
+    currentTokenHandle = PhGetOwnTokenAttributes().TokenHandle;
+
+    if (currentTokenHandle)
     {
         PTOKEN_USER tokenUser;
 
-        if (NT_SUCCESS(PhGetTokenUser(PhCurrentTokenQueryHandle, &tokenUser)))
+        if (NT_SUCCESS(PhGetTokenUser(currentTokenHandle, &tokenUser)))
         {
             PhCurrentUserName = PhGetSidFullName(tokenUser->User.Sid, TRUE, NULL);
             PhFree(tokenUser);
@@ -151,7 +166,7 @@ INT WINAPI wWinMain(
         PhActivatePreviousInstance();
     }
 
-    if (PhGetIntegerSetting(L"EnableKph") && !PhStartupParameters.NoKph && !PhIsExecutingInWow64())
+    if (PhGetIntegerSetting(L"EnableKph") && !PhStartupParameters.NoKph && !PhStartupParameters.CommandMode && !PhIsExecutingInWow64())
         PhInitializeKph();
 
     if (PhStartupParameters.CommandMode && PhStartupParameters.CommandType && PhStartupParameters.CommandAction)
@@ -197,6 +212,7 @@ INT WINAPI wWinMain(
         RtlExitUserProcess(STATUS_SUCCESS);
     }
 
+#ifndef DEBUG
     if (PhIsExecutingInWow64() && !PhStartupParameters.PhSvc)
     {
         PhShowWarning(
@@ -206,6 +222,7 @@ INT WINAPI wWinMain(
             L"Please run the 64-bit version of Process Hacker instead."
             );
     }
+#endif
 
     PhPluginsEnabled = PhGetIntegerSetting(L"EnablePlugins") && !PhStartupParameters.NoPlugins;
 
@@ -451,7 +468,7 @@ HFONT PhpCreateFont(
     if (hdc)
     {
         font = CreateFont(
-            -MulDiv(Size, GetDeviceCaps(hdc, LOGPIXELSY), 72),
+            -(LONG)PhMultiplyDivide(Size, PhGlobalDpi, 72),
             0,
             0,
             0,
@@ -482,6 +499,17 @@ VOID PhInitializeFont(
 {
     NONCLIENTMETRICS metrics = { sizeof(metrics) };
     BOOLEAN success;
+    HDC hdc;
+
+    if (hdc = GetDC(hWnd))
+    {
+        PhGlobalDpi = GetDeviceCaps(hdc, LOGPIXELSY);
+        ReleaseDC(hWnd, hdc);
+    }
+    else
+    {
+        PhGlobalDpi = 96;
+    }
 
     success = !!SystemParametersInfo(SPI_GETNONCLIENTMETRICS, 0, &metrics, 0);
 
@@ -497,22 +525,72 @@ VOID PhInitializeFont(
     }
 }
 
+PUCHAR PhpReadSignature(
+    _In_ PWSTR FileName,
+    _Out_ PULONG SignatureSize
+    )
+{
+    NTSTATUS status;
+    HANDLE fileHandle;
+    PUCHAR signature;
+    ULONG bufferSize;
+    IO_STATUS_BLOCK iosb;
+
+    if (!NT_SUCCESS(PhCreateFileWin32(&fileHandle, FileName, FILE_GENERIC_READ, FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT)))
+    {
+        return NULL;
+    }
+
+    bufferSize = 1024;
+    signature = PhAllocate(bufferSize);
+
+    status = NtReadFile(fileHandle, NULL, NULL, NULL, &iosb, signature, bufferSize, NULL, NULL);
+    NtClose(fileHandle);
+
+    if (NT_SUCCESS(status))
+    {
+        *SignatureSize = (ULONG)iosb.Information;
+        return signature;
+    }
+    else
+    {
+        PhFree(signature);
+        return NULL;
+    }
+}
+
 VOID PhInitializeKph(
     VOID
     )
 {
     static PH_STRINGREF kprocesshacker = PH_STRINGREF_INIT(L"kprocesshacker.sys");
-    PPH_STRING kprocesshackerFileName;
-    KPH_PARAMETERS parameters;
+    static PH_STRINGREF processhackerSig = PH_STRINGREF_INIT(L"ProcessHacker.sig");
 
-    // Append kprocesshacker.sys to the application directory.
+    PPH_STRING kprocesshackerFileName;
+    PPH_STRING processhackerSigFileName;
+    KPH_PARAMETERS parameters;
+    PUCHAR signature;
+    ULONG signatureSize;
+
+    if (WindowsVersion < WINDOWS_7)
+        return;
+
     kprocesshackerFileName = PhConcatStringRef2(&PhApplicationDirectory->sr, &kprocesshacker);
+    processhackerSigFileName = PhConcatStringRef2(&PhApplicationDirectory->sr, &processhackerSig);
 
     parameters.SecurityLevel = KphSecurityPrivilegeCheck;
     parameters.CreateDynamicConfiguration = TRUE;
+    KphConnect2Ex(KPH_DEVICE_SHORT_NAME, kprocesshackerFileName->Buffer, &parameters);
 
-    KphConnect2Ex(L"KProcessHacker2", kprocesshackerFileName->Buffer, &parameters);
+    if (signature = PhpReadSignature(processhackerSigFileName->Buffer, &signatureSize))
+    {
+        KphVerifyClient(signature, signatureSize);
+        PhFree(signature);
+    }
+
     PhDereferenceObject(kprocesshackerFileName);
+    PhDereferenceObject(processhackerSigFileName);
 }
 
 BOOLEAN PhInitializeAppSystem(
@@ -678,6 +756,7 @@ VOID PhpInitializeSettings(
 #define PH_ARG_PRIORITY 25
 #define PH_ARG_PLUGIN 26
 #define PH_ARG_SELECTTAB 27
+#define PH_ARG_SYSINFO 28
 
 BOOLEAN NTAPI PhpCommandLineOptionCallback(
     _In_opt_ PPH_COMMAND_LINE_OPTION Option,
@@ -793,11 +872,13 @@ BOOLEAN NTAPI PhpCommandLineOptionCallback(
         case PH_ARG_PLUGIN:
             if (!PhStartupParameters.PluginParameters)
                 PhStartupParameters.PluginParameters = PhCreateList(3);
-            PhReferenceObject(Value);
-            PhAddItemList(PhStartupParameters.PluginParameters, Value);
+            PhAddItemList(PhStartupParameters.PluginParameters, PhReferenceObject(Value));
             break;
         case PH_ARG_SELECTTAB:
             PhSwapReference(&PhStartupParameters.SelectTab, Value);
+            break;
+        case PH_ARG_SYSINFO:
+            PhSwapReference(&PhStartupParameters.SysInfo, Value ? Value : PhReferenceEmptyString());
             break;
         }
     }
@@ -806,7 +887,7 @@ BOOLEAN NTAPI PhpCommandLineOptionCallback(
         PPH_STRING upperValue;
 
         upperValue = PhDuplicateString(Value);
-        PhUpperString(upperValue);
+        _wcsupr(upperValue->Buffer);
 
         if (PhFindStringInString(upperValue, 0, L"TASKMGR.EXE") != -1)
         {
@@ -853,7 +934,8 @@ VOID PhpProcessStartupParameters(
         { PH_ARG_SELECTPID, L"selectpid", MandatoryArgumentType },
         { PH_ARG_PRIORITY, L"priority", MandatoryArgumentType },
         { PH_ARG_PLUGIN, L"plugin", MandatoryArgumentType },
-        { PH_ARG_SELECTTAB, L"selecttab", MandatoryArgumentType }
+        { PH_ARG_SELECTTAB, L"selecttab", MandatoryArgumentType },
+        { PH_ARG_SYSINFO, L"sysinfo", OptionalArgumentType }
     };
     PH_STRINGREF commandLine;
 
@@ -893,6 +975,7 @@ VOID PhpProcessStartupParameters(
             L"-selectpid pid-to-select\n"
             L"-selecttab name-of-tab-to-select\n"
             L"-settings filename\n"
+            L"-sysinfo [section-name]\n"
             L"-uninstallkph\n"
             L"-v\n"
             );
@@ -909,10 +992,10 @@ VOID PhpProcessStartupParameters(
 
         kprocesshackerFileName = PhConcatStrings2(PhApplicationDirectory->Buffer, L"\\kprocesshacker.sys");
 
-        parameters.SecurityLevel = KphSecurityNone;
+        parameters.SecurityLevel = KphSecuritySignatureCheck;
         parameters.CreateDynamicConfiguration = TRUE;
 
-        status = KphInstallEx(L"KProcessHacker2", kprocesshackerFileName->Buffer, &parameters);
+        status = KphInstallEx(KPH_DEVICE_SHORT_NAME, kprocesshackerFileName->Buffer, &parameters);
 
         if (!NT_SUCCESS(status) && !PhStartupParameters.Silent)
             PhShowStatus(NULL, L"Unable to install KProcessHacker", status, 0);
@@ -924,7 +1007,7 @@ VOID PhpProcessStartupParameters(
     {
         NTSTATUS status;
 
-        status = KphUninstall(L"KProcessHacker2");
+        status = KphUninstall(KPH_DEVICE_SHORT_NAME);
 
         if (!NT_SUCCESS(status) && !PhStartupParameters.Silent)
             PhShowStatus(NULL, L"Unable to uninstall KProcessHacker", status, 0);
@@ -932,7 +1015,7 @@ VOID PhpProcessStartupParameters(
         RtlExitUserProcess(status);
     }
 
-    if (PhStartupParameters.Elevate && !PhElevated)
+    if (PhStartupParameters.Elevate && !PhGetOwnTokenAttributes().Elevated)
     {
         PhShellProcessHacker(
             NULL,
@@ -959,10 +1042,10 @@ VOID PhpEnablePrivileges(
 {
     HANDLE tokenHandle;
 
-    if (NT_SUCCESS(PhOpenProcessToken(
-        &tokenHandle,
+    if (NT_SUCCESS(NtOpenProcessToken(
+        NtCurrentProcess(),
         TOKEN_ADJUST_PRIVILEGES,
-        NtCurrentProcess()
+        &tokenHandle
         )))
     {
         CHAR privilegesBuffer[FIELD_OFFSET(TOKEN_PRIVILEGES, Privileges) + sizeof(LUID_AND_ATTRIBUTES) * 8];

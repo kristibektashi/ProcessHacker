@@ -21,6 +21,8 @@
  */
 
 #include <phapp.h>
+#include <actions.h>
+#include <svcsup.h>
 #include <phsvccl.h>
 #include <windowsx.h>
 
@@ -67,7 +69,7 @@ INT_PTR CALLBACK PhpCreateServiceDlgProc(
             PhSelectComboBoxString(GetDlgItem(hwndDlg, IDC_STARTTYPE), L"Demand Start", FALSE);
             PhSelectComboBoxString(GetDlgItem(hwndDlg, IDC_ERRORCONTROL), L"Ignore", FALSE);
 
-            if (!PhElevated)
+            if (!PhGetOwnTokenAttributes().Elevated)
             {
                 SendMessage(GetDlgItem(hwndDlg, IDOK), BCM_SETSHIELD, 0, TRUE);
             }
@@ -101,19 +103,19 @@ INT_PTR CALLBACK PhpCreateServiceDlgProc(
                     ULONG serviceErrorControl;
                     PPH_STRING serviceBinaryPath;
 
-                    serviceName = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_NAME)));
-                    serviceDisplayName = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_DISPLAYNAME)));
+                    serviceName = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_NAME)));
+                    serviceDisplayName = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_DISPLAYNAME)));
 
-                    serviceTypeString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_TYPE)));
-                    serviceStartTypeString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_STARTTYPE)));
-                    serviceErrorControlString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_ERRORCONTROL)));
+                    serviceTypeString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_TYPE)));
+                    serviceStartTypeString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_STARTTYPE)));
+                    serviceErrorControlString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_ERRORCONTROL)));
                     serviceType = PhGetServiceTypeInteger(serviceTypeString->Buffer);
                     serviceStartType = PhGetServiceStartTypeInteger(serviceStartTypeString->Buffer);
                     serviceErrorControl = PhGetServiceErrorControlInteger(serviceErrorControlString->Buffer);
 
-                    serviceBinaryPath = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_BINARYPATH)));
+                    serviceBinaryPath = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_BINARYPATH)));
 
-                    if (PhElevated)
+                    if (PhGetOwnTokenAttributes().Elevated)
                     {
                         if (scManagerHandle = OpenSCManager(NULL, NULL, SC_MANAGER_CREATE_SERVICE))
                         {

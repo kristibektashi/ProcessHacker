@@ -1,5 +1,5 @@
-#define _PH_DATA_PRIVATE
 #include <ph.h>
+#include <phdata.h>
 
 // SIDs
 
@@ -141,11 +141,22 @@ ULONG PhCrc32Table[256] =
 DECLSPEC_SELECTANY
 WCHAR *PhIoPriorityHintNames[MaxIoPriorityTypes] =
 {
-    L"Very Low",
+    L"Very low",
     L"Low",
     L"Normal",
     L"High",
     L"Critical"
+};
+
+DECLSPEC_SELECTANY
+WCHAR *PhPagePriorityNames[MEMORY_PRIORITY_NORMAL + 1] =
+{
+    L"Lowest",
+    L"Very low",
+    L"Low",
+    L"Medium",
+    L"Below normal",
+    L"Normal"
 };
 
 DECLSPEC_SELECTANY

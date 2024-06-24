@@ -22,7 +22,6 @@
 
 #include "exttools.h"
 #include "etwmon.h"
-#include "resource.h"
 #include <toolstatusintf.h>
 #include "disktabp.h"
 
@@ -122,7 +121,7 @@ HWND NTAPI EtpDiskTabCreateFunction(
 
     DiskNodeHashtable = PhCreateHashtable(
         sizeof(PET_DISK_NODE),
-        EtpDiskNodeHashtableCompareFunction,
+        EtpDiskNodeHashtableEqualFunction,
         EtpDiskNodeHashtableHashFunction,
         100
         );
@@ -203,7 +202,7 @@ VOID NTAPI EtpDiskTabFontChangedCallback(
         SendMessage(DiskTreeNewHandle, WM_SETFONT, (WPARAM)Parameter1, TRUE);
 }
 
-BOOLEAN EtpDiskNodeHashtableCompareFunction(
+BOOLEAN EtpDiskNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -236,11 +235,11 @@ VOID EtInitializeDiskTreeList(
     // Default columns
     PhAddTreeNewColumn(hwnd, ETDSTNC_NAME, TRUE, L"Name", 100, PH_ALIGN_LEFT, 0, 0);
     PhAddTreeNewColumn(hwnd, ETDSTNC_FILE, TRUE, L"File", 400, PH_ALIGN_LEFT, 1, DT_PATH_ELLIPSIS);
-    PhAddTreeNewColumnEx(hwnd, ETDSTNC_READRATEAVERAGE, TRUE, L"Read Rate Average", 70, PH_ALIGN_RIGHT, 2, DT_RIGHT, TRUE);
-    PhAddTreeNewColumnEx(hwnd, ETDSTNC_WRITERATEAVERAGE, TRUE, L"Write Rate Average", 70, PH_ALIGN_RIGHT, 3, DT_RIGHT, TRUE);
-    PhAddTreeNewColumnEx(hwnd, ETDSTNC_TOTALRATEAVERAGE, TRUE, L"Total Rate Average", 70, PH_ALIGN_RIGHT, 4, DT_RIGHT, TRUE);
-    PhAddTreeNewColumnEx(hwnd, ETDSTNC_IOPRIORITY, TRUE, L"I/O Priority", 70, PH_ALIGN_LEFT, 5, 0, TRUE);
-    PhAddTreeNewColumnEx(hwnd, ETDSTNC_RESPONSETIME, TRUE, L"Response Time (ms)", 70, PH_ALIGN_RIGHT, 6, 0, TRUE);
+    PhAddTreeNewColumnEx(hwnd, ETDSTNC_READRATEAVERAGE, TRUE, L"Read rate average", 70, PH_ALIGN_RIGHT, 2, DT_RIGHT, TRUE);
+    PhAddTreeNewColumnEx(hwnd, ETDSTNC_WRITERATEAVERAGE, TRUE, L"Write rate average", 70, PH_ALIGN_RIGHT, 3, DT_RIGHT, TRUE);
+    PhAddTreeNewColumnEx(hwnd, ETDSTNC_TOTALRATEAVERAGE, TRUE, L"Total rate average", 70, PH_ALIGN_RIGHT, 4, DT_RIGHT, TRUE);
+    PhAddTreeNewColumnEx(hwnd, ETDSTNC_IOPRIORITY, TRUE, L"I/O priority", 70, PH_ALIGN_LEFT, 5, 0, TRUE);
+    PhAddTreeNewColumnEx(hwnd, ETDSTNC_RESPONSETIME, TRUE, L"Response time (ms)", 70, PH_ALIGN_RIGHT, 6, 0, TRUE);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -261,12 +260,9 @@ VOID EtLoadSettingsDiskTreeList(
     VOID
     )
 {
-    PPH_STRING settings;
     PH_INTEGER_PAIR sortSettings;
 
-    settings = PhGetStringSetting(SETTING_NAME_DISK_TREE_LIST_COLUMNS);
-    PhCmLoadSettings(DiskTreeNewHandle, &settings->sr);
-    PhDereferenceObject(settings);
+    PhCmLoadSettings(DiskTreeNewHandle, &PhaGetStringSetting(SETTING_NAME_DISK_TREE_LIST_COLUMNS)->sr);
 
     sortSettings = PhGetIntegerPairSetting(SETTING_NAME_DISK_TREE_LIST_SORT);
     TreeNew_SetSort(DiskTreeNewHandle, (ULONG)sortSettings.X, (PH_SORT_ORDER)sortSettings.Y);
@@ -284,9 +280,8 @@ VOID EtSaveSettingsDiskTreeList(
     if (!DiskTreeNewCreated)
         return;
 
-    settings = PhCmSaveSettings(DiskTreeNewHandle);
+    settings = PH_AUTO(PhCmSaveSettings(DiskTreeNewHandle));
     PhSetStringSetting2(SETTING_NAME_DISK_TREE_LIST_COLUMNS, &settings->sr);
-    PhDereferenceObject(settings);
 
     TreeNew_GetSort(DiskTreeNewHandle, &sortColumn, &sortOrder);
     sortSettings.X = sortColumn;
@@ -700,7 +695,7 @@ PPH_STRING EtpGetDiskItemProcessName(
     PH_FORMAT format[4];
 
     if (!DiskItem->ProcessId)
-        return PhCreateString(L"No Process");
+        return PhCreateString(L"No process");
 
     PhInitFormatS(&format[1], L" (");
     PhInitFormatU(&format[2], HandleToUlong(DiskItem->ProcessId));
@@ -709,7 +704,7 @@ PPH_STRING EtpGetDiskItemProcessName(
     if (DiskItem->ProcessName)
         PhInitFormatSR(&format[0], DiskItem->ProcessName->sr);
     else
-        PhInitFormatS(&format[0], L"Unknown Process");
+        PhInitFormatS(&format[0], L"Unknown process");
 
     return PhFormat(format, 4, 96);
 }
@@ -964,7 +959,7 @@ VOID EtShowDiskContextMenu(
     PhFree(diskItems);
 }
 
-static VOID NTAPI EtpDiskItemAddedHandler(
+VOID NTAPI EtpDiskItemAddedHandler(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -975,7 +970,7 @@ static VOID NTAPI EtpDiskItemAddedHandler(
     ProcessHacker_Invoke(PhMainWndHandle, EtpOnDiskItemAdded, diskItem);
 }
 
-static VOID NTAPI EtpDiskItemModifiedHandler(
+VOID NTAPI EtpDiskItemModifiedHandler(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -983,7 +978,7 @@ static VOID NTAPI EtpDiskItemModifiedHandler(
     ProcessHacker_Invoke(PhMainWndHandle, EtpOnDiskItemModified, (PET_DISK_ITEM)Parameter);
 }
 
-static VOID NTAPI EtpDiskItemRemovedHandler(
+VOID NTAPI EtpDiskItemRemovedHandler(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -991,7 +986,7 @@ static VOID NTAPI EtpDiskItemRemovedHandler(
     ProcessHacker_Invoke(PhMainWndHandle, EtpOnDiskItemRemoved, (PET_DISK_ITEM)Parameter);
 }
 
-static VOID NTAPI EtpDiskItemsUpdatedHandler(
+VOID NTAPI EtpDiskItemsUpdatedHandler(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -999,7 +994,7 @@ static VOID NTAPI EtpDiskItemsUpdatedHandler(
     ProcessHacker_Invoke(PhMainWndHandle, EtpOnDiskItemsUpdated, NULL);
 }
 
-static VOID NTAPI EtpOnDiskItemAdded(
+VOID NTAPI EtpOnDiskItemAdded(
     _In_ PVOID Parameter
     )
 {
@@ -1016,7 +1011,7 @@ static VOID NTAPI EtpOnDiskItemAdded(
     PhDereferenceObject(diskItem);
 }
 
-static VOID NTAPI EtpOnDiskItemModified(
+VOID NTAPI EtpOnDiskItemModified(
     _In_ PVOID Parameter
     )
 {
@@ -1025,7 +1020,7 @@ static VOID NTAPI EtpOnDiskItemModified(
     EtUpdateDiskNode(EtFindDiskNode(diskItem));
 }
 
-static VOID NTAPI EtpOnDiskItemRemoved(
+VOID NTAPI EtpOnDiskItemRemoved(
     _In_ PVOID Parameter
     )
 {
@@ -1040,7 +1035,7 @@ static VOID NTAPI EtpOnDiskItemRemoved(
     EtRemoveDiskNode(EtFindDiskNode(diskItem));
 }
 
-static VOID NTAPI EtpOnDiskItemsUpdated(
+VOID NTAPI EtpOnDiskItemsUpdated(
     _In_ PVOID Parameter
     )
 {
@@ -1129,7 +1124,7 @@ INT_PTR CALLBACK EtpDiskTabErrorDialogProc(
     {
     case WM_INITDIALOG:
         {
-            if (!PhElevated)
+            if (!PhGetOwnTokenAttributes().Elevated)
             {
                 SendMessage(GetDlgItem(hwndDlg, IDC_RESTART), BCM_SETSHIELD, 0, TRUE);
             }

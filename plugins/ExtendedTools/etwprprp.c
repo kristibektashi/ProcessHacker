@@ -22,9 +22,6 @@
  */
 
 #include "exttools.h"
-#include "resource.h"
-
-#define MSG_UPDATE (WM_APP + 1)
 
 static RECT NormalGraphTextMargin = { 5, 5, 5, 5 };
 static RECT NormalGraphTextPadding = { 3, 3, 3, 3 };
@@ -59,7 +56,7 @@ typedef struct _ET_DISKNET_CONTEXT
     PH_CIRCULAR_BUFFER_ULONG64 NetworkReceiveHistory;
 } ET_DISKNET_CONTEXT, *PET_DISKNET_CONTEXT;
 
-static INT_PTR CALLBACK EtwDiskNetworkPanelDialogProc(
+INT_PTR CALLBACK EtwDiskNetworkPanelDialogProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -69,7 +66,7 @@ static INT_PTR CALLBACK EtwDiskNetworkPanelDialogProc(
     return FALSE;
 }
 
-static VOID EtwDiskNetworkCreateGraphs(
+VOID EtwDiskNetworkCreateGraphs(
     _In_ PET_DISKNET_CONTEXT Context
     )
 {
@@ -104,7 +101,7 @@ static VOID EtwDiskNetworkCreateGraphs(
     Graph_SetTooltip(Context->NetworkGraphHandle, TRUE);
 }
 
-static VOID EtwDiskNetworkCreatePanel(
+VOID EtwDiskNetworkCreatePanel(
     _In_ PET_DISKNET_CONTEXT Context
     )
 {
@@ -144,16 +141,16 @@ static VOID EtwDiskNetworkCreatePanel(
     SendMessage(Context->WindowHandle, WM_SIZE, 0, 0);
 }
 
-static VOID EtwDiskNetworkLayoutGraphs(
+VOID EtwDiskNetworkLayoutGraphs(
     _In_ PET_DISKNET_CONTEXT Context
     )
 {
     HDWP deferHandle;
     RECT clientRect;
     RECT panelRect;
-    RECT margin = { 13, 13, 13, 13 };
-    RECT innerMargin = { 10, 20, 10, 10 };
-    LONG between = 3;
+    RECT margin = { ET_SCALE_DPI(13), ET_SCALE_DPI(13), ET_SCALE_DPI(13), ET_SCALE_DPI(13) };
+    RECT innerMargin = { ET_SCALE_DPI(10), ET_SCALE_DPI(20), ET_SCALE_DPI(10), ET_SCALE_DPI(10) };
+    LONG between = ET_SCALE_DPI(3);
     ULONG graphWidth;
     ULONG graphHeight;
 
@@ -201,7 +198,7 @@ static VOID EtwDiskNetworkLayoutGraphs(
     EndDeferWindowPos(deferHandle);
 }
 
-static VOID EtwDiskNetworkUpdateGraphs(
+VOID EtwDiskNetworkUpdateGraphs(
     _In_ PET_DISKNET_CONTEXT Context
     )
 {
@@ -220,7 +217,7 @@ static VOID EtwDiskNetworkUpdateGraphs(
     InvalidateRect(Context->NetworkGraphHandle, NULL, FALSE);
 }
 
-static VOID EtwDiskNetworkUpdatePanel(
+VOID EtwDiskNetworkUpdatePanel(
     _Inout_ PET_DISKNET_CONTEXT Context
     )
 {
@@ -241,7 +238,7 @@ static VOID EtwDiskNetworkUpdatePanel(
     SetDlgItemText(Context->PanelHandle, IDC_ZSENDBYTESDELTA_V, PhaFormatSize(block->NetworkSendRawDelta.Delta, -1)->Buffer);
 }
 
-static VOID EtwDiskNetworkUpdateInfo(
+VOID EtwDiskNetworkUpdateInfo(
     _In_ PET_DISKNET_CONTEXT Context
     )
 {
@@ -258,7 +255,7 @@ static VOID EtwDiskNetworkUpdateInfo(
     PhAddItemCircularBuffer_ULONG64(&Context->NetworkReceiveHistory, Context->CurrentNetworkReceive);
 }
 
-static VOID NTAPI EtwDiskNetworkUpdateHandler(
+VOID NTAPI EtwDiskNetworkUpdateHandler(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -270,11 +267,11 @@ static VOID NTAPI EtwDiskNetworkUpdateHandler(
 
     if (context->WindowHandle)
     {
-        PostMessage(context->WindowHandle, MSG_UPDATE, 0, 0);
+        PostMessage(context->WindowHandle, UPDATE_MSG, 0, 0);
     }
 }
 
-static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
+INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -406,7 +403,7 @@ static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
                             drawInfo->Text.Buffer = NULL;
                         }
 
-                        drawInfo->Flags = PH_GRAPH_USE_GRID | PH_GRAPH_USE_LINE_2;
+                        drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y | PH_GRAPH_LABEL_MAX_Y | PH_GRAPH_USE_LINE_2;
                         PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
                         PhGraphStateGetDrawInfo(&context->DiskGraphState, getDrawInfo, context->DiskReadHistory.Count);
 
@@ -430,19 +427,24 @@ static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
                             //if (max < 1024 * 1024)
                             //    max = 1024 * 1024;
 
-                            // Scale the data.
-                            PhDivideSinglesBySingle(
-                                context->DiskGraphState.Data1,
-                                max,
-                                drawInfo->LineDataCount
-                                );
+                            if (max != 0)
+                            {
+                                // Scale the data.
 
-                            // Scale the data.
-                            PhDivideSinglesBySingle(
-                                context->DiskGraphState.Data2,
-                                max,
-                                drawInfo->LineDataCount
-                                );
+                                PhDivideSinglesBySingle(
+                                    context->DiskGraphState.Data1,
+                                    max,
+                                    drawInfo->LineDataCount
+                                    );
+                                PhDivideSinglesBySingle(
+                                    context->DiskGraphState.Data2,
+                                    max,
+                                    drawInfo->LineDataCount
+                                    );
+                            }
+
+                            drawInfo->LabelYFunction = PhSiSizeLabelYFunction;
+                            drawInfo->LabelYFunctionParameter = max;
 
                             context->DiskGraphState.Valid = TRUE;
                         }
@@ -469,7 +471,7 @@ static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
                             drawInfo->Text.Buffer = NULL;
                         }
 
-                        drawInfo->Flags = PH_GRAPH_USE_GRID | PH_GRAPH_USE_LINE_2;
+                        drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y | PH_GRAPH_LABEL_MAX_Y | PH_GRAPH_USE_LINE_2;
                         PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
                         PhGraphStateGetDrawInfo(&context->NetworkGraphState, getDrawInfo, context->NetworkSendHistory.Count);
 
@@ -493,19 +495,24 @@ static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
                             //if (max < 1024 * 1024)
                             //    max = 1024 * 1024;
 
-                            // Scale the data.
-                            PhDivideSinglesBySingle(
-                                context->NetworkGraphState.Data1,
-                                max,
-                                drawInfo->LineDataCount
-                                );
+                            if (max != 0)
+                            {
+                                // Scale the data.
 
-                            // Scale the data.
-                            PhDivideSinglesBySingle(
-                                context->NetworkGraphState.Data2,
-                                max,
-                                drawInfo->LineDataCount
-                                );
+                                PhDivideSinglesBySingle(
+                                    context->NetworkGraphState.Data1,
+                                    max,
+                                    drawInfo->LineDataCount
+                                    );
+                                PhDivideSinglesBySingle(
+                                    context->NetworkGraphState.Data2,
+                                    max,
+                                    drawInfo->LineDataCount
+                                    );
+                            }
+
+                            drawInfo->LabelYFunction = PhSiSizeLabelYFunction;
+                            drawInfo->LabelYFunctionParameter = max;
 
                             context->NetworkGraphState.Valid = TRUE;
                         }
@@ -536,7 +543,7 @@ static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
                                     L"R: %s\nW: %s\n%s",
                                     PhaFormatSize(diskRead, -1)->Buffer,
                                     PhaFormatSize(diskWrite, -1)->Buffer,
-                                    ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                                    ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                                     ));
                             }
 
@@ -560,7 +567,7 @@ static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
                                     L"S: %s\nR: %s\n%s",
                                     PhaFormatSize(networkSend, -1)->Buffer,
                                     PhaFormatSize(networkReceive, -1)->Buffer,
-                                    ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                                    ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                                     ));
                             }
 
@@ -572,11 +579,14 @@ static INT_PTR CALLBACK EtwDiskNetworkPageDlgProc(
             }
         }
         break;
-    case MSG_UPDATE:
+    case UPDATE_MSG:
         {
-            EtwDiskNetworkUpdateInfo(context);
-            EtwDiskNetworkUpdateGraphs(context);
-            EtwDiskNetworkUpdatePanel(context);
+            if (context->Enabled)
+            {
+                EtwDiskNetworkUpdateInfo(context);
+                EtwDiskNetworkUpdateGraphs(context);
+                EtwDiskNetworkUpdatePanel(context);
+            }
         }
         break;
     case WM_SIZE:

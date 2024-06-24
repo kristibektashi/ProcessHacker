@@ -17,28 +17,13 @@ copy ..\..\ProcessHacker\sdk\readme.txt ..\..\sdk\
 rem Header files
 
 for %%a in (
-    circbuf.h
-    circbuf_h.h
-    cpysave.h
-    dltmgr.h
-    dspick.h
-    emenu.h
-    fastlock.h
-    graph.h
-    hexedit.h
-    kphapi.h
-    kphuser.h
-    ntbasic.h
-    ntcm.h
     ntdbg.h
     ntexapi.h
     ntgdi.h
-    ntimport.h
     ntioapi.h
     ntkeapi.h
     ntldr.h
     ntlpcapi.h
-    ntlsa.h
     ntmisc.h
     ntmmapi.h
     ntnls.h
@@ -54,27 +39,53 @@ for %%a in (
     ntseapi.h
     nttmapi.h
     nttp.h
-    ntwin.h
     ntwow64.h
     ntxcapi.h
     ntzwapi.h
+    phnt.h
+    phnt_ntdef.h
+    phnt_windows.h
+    subprocesstag.h
+    winsta.h
+    ) do copy ..\..\phnt\include\%%a ..\..\sdk\include\%%a
+
+for %%a in (
+    circbuf.h
+    circbuf_h.h
+    cpysave.h
+    dltmgr.h
+    dspick.h
+    emenu.h
+    fastlock.h
+    filestream.h
+    graph.h
+    guisup.h
+    hexedit.h
+    hndlinfo.h
+    kphapi.h
+    kphuser.h
+    lsasup.h
+    mapimg.h
     ph.h
     phbase.h
-    phgui.h
-    phnatinl.h
+    phbasesup.h
+    phconfig.h
+    phdata.h
+    phnative.h
+    phnativeinl.h
     phnet.h
-    phnt.h
     phsup.h
-    phsync.h
+    phutil.h
+    provider.h
     queuedlock.h
     ref.h
     secedit.h
+    svcsup.h
     symprv.h
     templ.h
     treenew.h
     verify.h
-    winmisc.h
-    winsta.h
+    workqueue.h
     ) do copy ..\..\phlib\include\%%a ..\..\sdk\include\%%a
 
 call phapppub_gen.cmd
@@ -98,13 +109,6 @@ copy ..\..\KProcessHacker\bin\i386\kprocesshacker.pdb ..\..\sdk\dbg\i386\
 copy ..\..\KProcessHacker\bin\amd64\kprocesshacker.pdb ..\..\sdk\dbg\amd64\
 
 rem Libraries
-
-copy ..\..\lib\lib32\ntdll.lib ..\..\sdk\lib\i386\
-copy ..\..\lib\lib64\ntdll.lib ..\..\sdk\lib\amd64\
-copy ..\..\lib\lib32\samlib.lib ..\..\sdk\lib\i386\
-copy ..\..\lib\lib64\samlib.lib ..\..\sdk\lib\amd64\
-copy ..\..\lib\lib32\winsta.lib ..\..\sdk\lib\i386\
-copy ..\..\lib\lib64\winsta.lib ..\..\sdk\lib\amd64\
 
 copy ..\..\bin\Release32\ProcessHacker.lib ..\..\sdk\lib\i386\
 copy ..\..\bin\Release64\ProcessHacker.lib ..\..\sdk\lib\amd64\ > NUL

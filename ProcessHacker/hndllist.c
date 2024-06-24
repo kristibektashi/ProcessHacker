@@ -21,13 +21,15 @@
  */
 
 #include <phapp.h>
+#include <hndllist.h>
+#include <hndlprv.h>
 #include <secedit.h>
 #include <settings.h>
 #include <extmgri.h>
 #include <phplug.h>
 #include <emenu.h>
 
-BOOLEAN PhpHandleNodeHashtableCompareFunction(
+BOOLEAN PhpHandleNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -73,7 +75,7 @@ VOID PhInitializeHandleList(
 
     Context->NodeHashtable = PhCreateHashtable(
         sizeof(PPH_HANDLE_NODE),
-        PhpHandleNodeHashtableCompareFunction,
+        PhpHandleNodeHashtableEqualFunction,
         PhpHandleNodeHashtableHashFunction,
         100
         );
@@ -93,12 +95,12 @@ VOID PhInitializeHandleList(
     PhAddTreeNewColumn(hwnd, PHHNTLC_NAME, TRUE, L"Name", 200, PH_ALIGN_LEFT, 1, 0);
     PhAddTreeNewColumn(hwnd, PHHNTLC_HANDLE, TRUE, L"Handle", 80, PH_ALIGN_LEFT, 2, 0);
 
-    PhAddTreeNewColumn(hwnd, PHHNTLC_OBJECTADDRESS, FALSE, L"Object Address", 80, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumn(hwnd, PHHNTLC_OBJECTADDRESS, FALSE, L"Object address", 80, PH_ALIGN_LEFT, -1, 0);
     PhAddTreeNewColumnEx(hwnd, PHHNTLC_ATTRIBUTES, FALSE, L"Attributes", 120, PH_ALIGN_LEFT, -1, 0, TRUE);
-    PhAddTreeNewColumn(hwnd, PHHNTLC_GRANTEDACCESS, FALSE, L"Granted Access", 80, PH_ALIGN_LEFT, -1, 0);
-    PhAddTreeNewColumn(hwnd, PHHNTLC_GRANTEDACCESSSYMBOLIC, FALSE, L"Granted Access (Symbolic)", 140, PH_ALIGN_LEFT, -1, 0);
-    PhAddTreeNewColumn(hwnd, PHHNTLC_ORIGINALNAME, FALSE, L"Original Name", 200, PH_ALIGN_LEFT, -1, 0);
-    PhAddTreeNewColumnEx(hwnd, PHHNTLC_FILESHAREACCESS, FALSE, L"File Share Access", 50, PH_ALIGN_LEFT, -1, 0, TRUE);
+    PhAddTreeNewColumn(hwnd, PHHNTLC_GRANTEDACCESS, FALSE, L"Granted access", 80, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumn(hwnd, PHHNTLC_GRANTEDACCESSSYMBOLIC, FALSE, L"Granted access (symbolic)", 140, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumn(hwnd, PHHNTLC_ORIGINALNAME, FALSE, L"Original name", 200, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumnEx(hwnd, PHHNTLC_FILESHAREACCESS, FALSE, L"File share access", 50, PH_ALIGN_LEFT, -1, 0, TRUE);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -122,7 +124,7 @@ VOID PhDeleteHandleList(
     PhDereferenceObject(Context->NodeList);
 }
 
-BOOLEAN PhpHandleNodeHashtableCompareFunction(
+BOOLEAN PhpHandleNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -137,7 +139,7 @@ ULONG PhpHandleNodeHashtableHashFunction(
     _In_ PVOID Entry
     )
 {
-    return (ULONG)(*(PPH_HANDLE_NODE *)Entry)->Handle / 4;
+    return HandleToUlong((*(PPH_HANDLE_NODE *)Entry)->Handle) / 4;
 }
 
 VOID PhLoadSettingsHandleList(
@@ -724,25 +726,21 @@ VOID PhGetSelectedHandleItems(
     _Out_ PULONG NumberOfHandles
     )
 {
-    PPH_LIST list;
+    PH_ARRAY array;
     ULONG i;
 
-    list = PhCreateList(2);
+    PhInitializeArray(&array, sizeof(PVOID), 2);
 
     for (i = 0; i < Context->NodeList->Count; i++)
     {
         PPH_HANDLE_NODE node = Context->NodeList->Items[i];
 
         if (node->Node.Selected)
-        {
-            PhAddItemList(list, node->HandleItem);
-        }
+            PhAddItemArray(&array, &node->HandleItem);
     }
 
-    *Handles = PhAllocateCopy(list->Items, sizeof(PVOID) * list->Count);
-    *NumberOfHandles = list->Count;
-
-    PhDereferenceObject(list);
+    *NumberOfHandles = (ULONG)array.Count;
+    *Handles = PhFinalArrayItems(&array);
 }
 
 VOID PhDeselectAllHandleNodes(

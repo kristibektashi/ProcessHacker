@@ -2,7 +2,7 @@
  * Process Hacker -
  *   notification icon manager
  *
- * Copyright (C) 2011-2013 wj32
+ * Copyright (C) 2011-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,88 +21,16 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
 #include <settings.h>
 #include <extmgri.h>
 #include <miniinfo.h>
 #include <phplug.h>
 #include <notifico.h>
+#include <notificop.h>
+#include <mainwndp.h>
+#include <shellapi.h>
 #include <windowsx.h>
-
-typedef struct _PH_NF_BITMAP
-{
-    BOOLEAN Initialized;
-    HDC Hdc;
-    BITMAPINFOHEADER Header;
-    HBITMAP Bitmap;
-    PVOID Bits;
-} PH_NF_BITMAP, *PPH_NF_BITMAP;
-
-HICON PhNfpGetBlackIcon(
-    VOID
-    );
-
-BOOLEAN PhNfpAddNotifyIcon(
-    _In_ ULONG Id
-    );
-
-BOOLEAN PhNfpRemoveNotifyIcon(
-    _In_ ULONG Id
-    );
-
-BOOLEAN PhNfpModifyNotifyIcon(
-    _In_ ULONG Id,
-    _In_ ULONG Flags,
-    _In_opt_ PPH_STRING Text,
-    _In_opt_ HICON Icon
-    );
-
-VOID PhNfpProcessesUpdatedHandler(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID PhNfpUpdateRegisteredIcon(
-    _In_ PPH_NF_ICON Icon
-    );
-
-VOID PhNfpBeginBitmap(
-    _Out_ PULONG Width,
-    _Out_ PULONG Height,
-    _Out_ HBITMAP *Bitmap,
-    _Out_opt_ PVOID *Bits,
-    _Out_ HDC *Hdc,
-    _Out_ HBITMAP *OldBitmap
-    );
-
-VOID PhNfpBeginBitmap2(
-    _Inout_ PPH_NF_BITMAP Context,
-    _Out_ PULONG Width,
-    _Out_ PULONG Height,
-    _Out_ HBITMAP *Bitmap,
-    _Out_opt_ PVOID *Bits,
-    _Out_ HDC *Hdc,
-    _Out_ HBITMAP *OldBitmap
-    );
-
-VOID PhNfpUpdateIconCpuHistory(
-    VOID
-    );
-
-VOID PhNfpUpdateIconIoHistory(
-    VOID
-    );
-
-VOID PhNfpUpdateIconCommitHistory(
-    VOID
-    );
-
-VOID PhNfpUpdateIconPhysicalHistory(
-    VOID
-    );
-
-VOID PhNfpUpdateIconCpuUsage(
-    VOID
-    );
 
 BOOLEAN PhNfTerminating = FALSE;
 ULONG PhNfIconMask;
@@ -110,6 +38,7 @@ ULONG PhNfIconNotifyMask;
 ULONG PhNfMaximumIconId = PH_ICON_DEFAULT_MAXIMUM;
 PPH_NF_ICON PhNfRegisteredIcons[32] = { 0 };
 PPH_STRING PhNfIconTextCache[32] = { 0 };
+BOOLEAN PhNfMiniInfoEnabled;
 BOOLEAN PhNfMiniInfoPinned;
 
 PH_NF_POINTERS PhNfpPointers;
@@ -118,6 +47,11 @@ PH_NF_BITMAP PhNfpDefaultBitmapContext = { 0 };
 PH_NF_BITMAP PhNfpBlackBitmapContext = { 0 };
 HBITMAP PhNfpBlackBitmap = NULL;
 HICON PhNfpBlackIcon = NULL;
+
+static POINT IconClickLocation;
+static PH_NF_MSG_SHOWMINIINFOSECTION_DATA IconClickShowMiniInfoSectionData;
+static BOOLEAN IconClickUpDueToDown;
+static BOOLEAN IconDisableHover;
 
 VOID PhNfLoadStage1(
     VOID
@@ -164,6 +98,8 @@ VOID PhNfLoadStage2(
     )
 {
     ULONG i;
+
+    PhNfMiniInfoEnabled = WindowsVersion >= WINDOWS_VISTA && !!PhGetIntegerSetting(L"MiniInfoWindowEnabled");
 
     for (i = PH_ICON_MINIMUM; i != PhNfMaximumIconId; i <<= 1)
     {
@@ -272,19 +208,70 @@ VOID PhNfForwardMessage(
     case WM_LBUTTONDOWN:
         {
             if (PhGetIntegerSetting(L"IconSingleClick"))
+            {
                 ProcessHacker_IconClick(PhMainWndHandle);
+                PhNfpDisableHover();
+            }
+            else
+            {
+                IconClickUpDueToDown = TRUE;
+            }
+        }
+        break;
+    case WM_LBUTTONUP:
+        {
+            if (!PhGetIntegerSetting(L"IconSingleClick") && PhNfMiniInfoEnabled && IconClickUpDueToDown)
+            {
+                PH_NF_MSG_SHOWMINIINFOSECTION_DATA showMiniInfoSectionData;
+
+                if (PhNfpGetShowMiniInfoSectionData(iconIndex, registeredIcon, &showMiniInfoSectionData))
+                {
+                    GetCursorPos(&IconClickLocation);
+
+                    if (IconClickShowMiniInfoSectionData.SectionName)
+                    {
+                        PhFree(IconClickShowMiniInfoSectionData.SectionName);
+                        IconClickShowMiniInfoSectionData.SectionName = NULL;
+                    }
+
+                    if (showMiniInfoSectionData.SectionName)
+                    {
+                        IconClickShowMiniInfoSectionData.SectionName = PhDuplicateStringZ(showMiniInfoSectionData.SectionName);
+                    }
+
+                    SetTimer(PhMainWndHandle, TIMER_ICON_CLICK_ACTIVATE, GetDoubleClickTime() + NFP_ICON_CLICK_ACTIVATE_DELAY, PhNfpIconClickActivateTimerProc);
+                }
+                else
+                {
+                    KillTimer(PhMainWndHandle, TIMER_ICON_CLICK_ACTIVATE);
+                }
+            }
         }
         break;
     case WM_LBUTTONDBLCLK:
         {
             if (!PhGetIntegerSetting(L"IconSingleClick"))
+            {
+                if (PhNfMiniInfoEnabled)
+                {
+                    // We will get another WM_LBUTTONUP message corresponding to the double-click,
+                    // and we need to make sure that it doesn't start the activation timer again.
+                    KillTimer(PhMainWndHandle, TIMER_ICON_CLICK_ACTIVATE);
+                    IconClickUpDueToDown = FALSE;
+                    PhNfpDisableHover();
+                }
+
                 ProcessHacker_IconClick(PhMainWndHandle);
+            }
         }
         break;
     case WM_RBUTTONUP:
     case WM_CONTEXTMENU:
         {
             POINT location;
+
+            if (!PhGetIntegerSetting(L"IconSingleClick") && PhNfMiniInfoEnabled)
+                KillTimer(PhMainWndHandle, TIMER_ICON_CLICK_ACTIVATE);
 
             PhPinMiniInformation(MiniInfoIconPinType, -1, 0, 0, NULL, NULL);
             GetCursorPos(&location);
@@ -302,51 +289,9 @@ VOID PhNfForwardMessage(
     case NIN_POPUPOPEN:
         {
             PH_NF_MSG_SHOWMINIINFOSECTION_DATA showMiniInfoSectionData;
-            BOOLEAN showMiniInfo = FALSE;
             POINT location;
 
-            if (registeredIcon)
-            {
-                showMiniInfoSectionData.SectionName = NULL;
-
-                if (registeredIcon->Flags & PH_NF_ICON_SHOW_MINIINFO)
-                {
-                    if (registeredIcon->MessageCallback)
-                    {
-                        registeredIcon->MessageCallback(
-                            registeredIcon,
-                            (ULONG_PTR)&showMiniInfoSectionData,
-                            MAKELPARAM(PH_NF_MSG_SHOWMINIINFOSECTION, 0),
-                            registeredIcon->Context
-                            );
-                    }
-
-                    showMiniInfo = TRUE;
-                }
-            }
-            else
-            {
-                switch (1 << iconIndex)
-                {
-                case PH_ICON_CPU_HISTORY:
-                case PH_ICON_CPU_USAGE:
-                    showMiniInfoSectionData.SectionName = L"CPU";
-                    break;
-                case PH_ICON_IO_HISTORY:
-                    showMiniInfoSectionData.SectionName = L"I/O";
-                    break;
-                case PH_ICON_COMMIT_HISTORY:
-                    showMiniInfoSectionData.SectionName = L"Commit Charge";
-                    break;
-                case PH_ICON_PHYSICAL_HISTORY:
-                    showMiniInfoSectionData.SectionName = L"Physical Memory";
-                    break;
-                }
-
-                showMiniInfo = TRUE;
-            }
-
-            if (showMiniInfo)
+            if (PhNfMiniInfoEnabled && !IconDisableHover && PhNfpGetShowMiniInfoSectionData(iconIndex, registeredIcon, &showMiniInfoSectionData))
             {
                 GetCursorPos(&location);
                 PhPinMiniInformation(MiniInfoIconPinType, 1, 0, PH_MINIINFO_DONT_CHANGE_SECTION_IF_PINNED,
@@ -604,7 +549,7 @@ BOOLEAN PhNfpAddNotifyIcon(
         );
     notifyIcon.hIcon = PhNfpGetBlackIcon();
 
-    if (PhNfMiniInfoPinned || (icon && !(icon->Flags & PH_NF_ICON_SHOW_MINIINFO)))
+    if (!PhNfMiniInfoEnabled || PhNfMiniInfoPinned || (icon && !(icon->Flags & PH_NF_ICON_SHOW_MINIINFO)))
         notifyIcon.uFlags |= NIF_SHOWTIP;
 
     Shell_NotifyIcon(NIM_ADD, &notifyIcon);
@@ -675,7 +620,7 @@ BOOLEAN PhNfpModifyNotifyIcon(
 
     notifyIcon.hIcon = Icon;
 
-    if (PhNfMiniInfoPinned || (icon && !(icon->Flags & PH_NF_ICON_SHOW_MINIINFO)))
+    if (!PhNfMiniInfoEnabled || PhNfMiniInfoPinned || (icon && !(icon->Flags & PH_NF_ICON_SHOW_MINIINFO)))
         notifyIcon.uFlags |= NIF_SHOWTIP;
 
     if (!Shell_NotifyIcon(NIM_MODIFY, &notifyIcon))
@@ -894,7 +839,7 @@ VOID PhNfpUpdateIconCpuHistory(
     // Text
 
     if (PhMaxCpuHistory.Count != 0)
-        maxCpuProcessId = (HANDLE)PhGetItemCircularBuffer_ULONG(&PhMaxCpuHistory, 0);
+        maxCpuProcessId = UlongToHandle(PhGetItemCircularBuffer_ULONG(&PhMaxCpuHistory, 0));
     else
         maxCpuProcessId = NULL;
 
@@ -1003,7 +948,7 @@ VOID PhNfpUpdateIconIoHistory(
     // Text
 
     if (PhMaxIoHistory.Count != 0)
-        maxIoProcessId = (HANDLE)PhGetItemCircularBuffer_ULONG(&PhMaxIoHistory, 0);
+        maxIoProcessId = UlongToHandle(PhGetItemCircularBuffer_ULONG(&PhMaxIoHistory, 0));
     else
         maxIoProcessId = NULL;
 
@@ -1172,7 +1117,7 @@ VOID PhNfpUpdateIconPhysicalHistory(
     physicalUsage = PhSystemBasicInformation.NumberOfPhysicalPages - PhPerfInformation.AvailablePages;
     physicalFraction = (FLOAT)physicalUsage / PhSystemBasicInformation.NumberOfPhysicalPages;
 
-    PhInitFormatS(&format[0], L"Physical Memory: ");
+    PhInitFormatS(&format[0], L"Physical memory: ");
     PhInitFormatSize(&format[1], UInt32x32To64(physicalUsage, PAGE_SIZE));
     PhInitFormatS(&format[2], L" (");
     PhInitFormatF(&format[3], physicalFraction * 100, 2);
@@ -1285,7 +1230,7 @@ VOID PhNfpUpdateIconCpuUsage(
     // Text
 
     if (PhMaxCpuHistory.Count != 0)
-        maxCpuProcessId = (HANDLE)PhGetItemCircularBuffer_ULONG(&PhMaxCpuHistory, 0);
+        maxCpuProcessId = UlongToHandle(PhGetItemCircularBuffer_ULONG(&PhMaxCpuHistory, 0));
     else
         maxCpuProcessId = NULL;
 
@@ -1302,11 +1247,95 @@ VOID PhNfpUpdateIconCpuUsage(
         }
     }
 
-    text = PhFormatString(L"CPU Usage: %.2f%%%s", (PhCpuKernelUsage + PhCpuUserUsage) * 100, PhGetStringOrEmpty(maxCpuText));
+    text = PhFormatString(L"CPU usage: %.2f%%%s", (PhCpuKernelUsage + PhCpuUserUsage) * 100, PhGetStringOrEmpty(maxCpuText));
     if (maxCpuText) PhDereferenceObject(maxCpuText);
 
     PhNfpModifyNotifyIcon(PH_ICON_CPU_USAGE, NIF_TIP | NIF_ICON, text, icon);
 
     DestroyIcon(icon);
     PhDereferenceObject(text);
+}
+
+BOOLEAN PhNfpGetShowMiniInfoSectionData(
+    _In_ ULONG IconIndex,
+    _In_ PPH_NF_ICON RegisteredIcon,
+    _Out_ PPH_NF_MSG_SHOWMINIINFOSECTION_DATA Data
+    )
+{
+    BOOLEAN showMiniInfo = FALSE;
+
+    if (RegisteredIcon)
+    {
+        Data->SectionName = NULL;
+
+        if (RegisteredIcon->Flags & PH_NF_ICON_SHOW_MINIINFO)
+        {
+            if (RegisteredIcon->MessageCallback)
+            {
+                RegisteredIcon->MessageCallback(
+                    RegisteredIcon,
+                    (ULONG_PTR)Data,
+                    MAKELPARAM(PH_NF_MSG_SHOWMINIINFOSECTION, 0),
+                    RegisteredIcon->Context
+                    );
+            }
+
+            showMiniInfo = TRUE;
+        }
+    }
+    else
+    {
+        switch (1 << IconIndex)
+        {
+        case PH_ICON_CPU_HISTORY:
+        case PH_ICON_CPU_USAGE:
+            Data->SectionName = L"CPU";
+            break;
+        case PH_ICON_IO_HISTORY:
+            Data->SectionName = L"I/O";
+            break;
+        case PH_ICON_COMMIT_HISTORY:
+            Data->SectionName = L"Commit charge";
+            break;
+        case PH_ICON_PHYSICAL_HISTORY:
+            Data->SectionName = L"Physical memory";
+            break;
+        }
+
+        showMiniInfo = TRUE;
+    }
+
+    return showMiniInfo;
+}
+
+VOID PhNfpIconClickActivateTimerProc(
+    _In_ HWND hwnd,
+    _In_ UINT uMsg,
+    _In_ UINT_PTR idEvent,
+    _In_ DWORD dwTime
+    )
+{
+    PhPinMiniInformation(MiniInfoActivePinType, 1, 0,
+        PH_MINIINFO_ACTIVATE_WINDOW | PH_MINIINFO_DONT_CHANGE_SECTION_IF_PINNED,
+        IconClickShowMiniInfoSectionData.SectionName, &IconClickLocation);
+    KillTimer(PhMainWndHandle, TIMER_ICON_CLICK_ACTIVATE);
+}
+
+VOID PhNfpDisableHover(
+    VOID
+    )
+{
+    IconDisableHover = TRUE;
+    SetTimer(PhMainWndHandle, TIMER_ICON_RESTORE_HOVER, NFP_ICON_RESTORE_HOVER_DELAY, PhNfpIconRestoreHoverTimerProc);
+}
+
+VOID PhNfpIconRestoreHoverTimerProc(
+    _In_ HWND hwnd,
+    _In_ UINT uMsg,
+    _In_ UINT_PTR idEvent,
+    _In_ DWORD dwTime
+    )
+{
+    IconDisableHover = FALSE;
+    KillTimer(PhMainWndHandle, TIMER_ICON_RESTORE_HOVER);
 }

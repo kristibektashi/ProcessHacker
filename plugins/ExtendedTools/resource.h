@@ -16,7 +16,6 @@
 #define IDD_SYSINFO_DISKPANEL           113
 #define IDD_OPTIONS                     114
 #define IDD_WSWATCH                     115
-#define IDR_EMPTYMEMLISTS               116
 #define IDD_SYSINFO_GPU                 117
 #define IDR_DISK                        118
 #define ID_VIEW_GPUINFORMATION          119
@@ -30,6 +29,7 @@
 #define IDD_DISKTABRESTART              127
 #define IDD_DISKTABERROR                128
 #define IDD_PROCDISKNET_PANEL           129
+#define IDD_PROCGPU_DETAILS             131
 #define IDC_LIST                        1001
 #define IDC_REFRESH                     1002
 #define IDC_SEQUENCENUMBER              1003
@@ -95,10 +95,7 @@
 #define IDC_ERROR                       1087
 #define IDC_GROUPDISK                   1088
 #define IDC_GROUPNETWORK                1089
-#define ID_EMPTY_EMPTYWORKINGSETS       40001
-#define ID_EMPTY_EMPTYMODIFIEDPAGELIST  40002
-#define ID_EMPTY_EMPTYSTANDBYLIST       40003
-#define ID_EMPTY_EMPTYPRIORITY0STANDBYLIST 40004
+#define IDC_GPUDETAILS                  1090
 #define ID_DISK_GOTOPROCESS             40005
 #define ID_DISK_COPY                    40006
 #define ID_DISK_PROPERTIES              40007
@@ -108,9 +105,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        130
+#define _APS_NEXT_RESOURCE_VALUE        134
 #define _APS_NEXT_COMMAND_VALUE         40009
-#define _APS_NEXT_CONTROL_VALUE         1090
+#define _APS_NEXT_CONTROL_VALUE         1091
 #define _APS_NEXT_SYMED_VALUE           130
 #endif
 #endif

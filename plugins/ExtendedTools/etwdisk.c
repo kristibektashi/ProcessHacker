@@ -35,7 +35,7 @@ VOID NTAPI EtpDiskItemDeleteProcedure(
     _In_ ULONG Flags
     );
 
-BOOLEAN NTAPI EtpDiskHashtableCompareFunction(
+BOOLEAN NTAPI EtpDiskHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -44,7 +44,7 @@ ULONG NTAPI EtpDiskHashtableHashFunction(
     _In_ PVOID Entry
     );
 
-VOID NTAPI ProcessesUpdatedCallback(
+VOID NTAPI EtpDiskProcessesUpdatedCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     );
@@ -77,7 +77,7 @@ VOID EtInitializeDiskInformation(
     EtDiskItemType = PhCreateObjectType(L"DiskItem", 0, EtpDiskItemDeleteProcedure);
     EtDiskHashtable = PhCreateHashtable(
         sizeof(PET_DISK_ITEM),
-        EtpDiskHashtableCompareFunction,
+        EtpDiskHashtableEqualFunction,
         EtpDiskHashtableHashFunction,
         128
         );
@@ -96,7 +96,7 @@ VOID EtInitializeDiskInformation(
 
     PhRegisterCallback(
         &PhProcessesUpdatedEvent,
-        ProcessesUpdatedCallback,
+        EtpDiskProcessesUpdatedCallback,
         NULL,
         &ProcessesUpdatedCallbackRegistration
         );
@@ -128,7 +128,7 @@ VOID NTAPI EtpDiskItemDeleteProcedure(
     if (diskItem->ProcessRecord) PhDereferenceProcessRecord(diskItem->ProcessRecord);
 }
 
-BOOLEAN NTAPI EtpDiskHashtableCompareFunction(
+BOOLEAN NTAPI EtpDiskHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -396,7 +396,7 @@ ULONG64 EtpCalculateAverage(
     return sum / NumberToConsider;
 }
 
-static VOID NTAPI ProcessesUpdatedCallback(
+VOID NTAPI EtpDiskProcessesUpdatedCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )

@@ -21,7 +21,10 @@
  */
 
 #include <phapp.h>
+#include <hndlprv.h>
+#include <workqueue.h>
 #include <kphuser.h>
+#include <hndlinfo.h>
 #include <extmgri.h>
 
 typedef struct _PHP_CREATE_HANDLE_ITEM_CONTEXT
@@ -133,7 +136,7 @@ PPH_HANDLE_ITEM PhCreateHandleItem(
         PhPrintPointer(handleItem->ObjectString, handleItem->Object);
         handleItem->Attributes = Handle->HandleAttributes;
         handleItem->GrantedAccess = (ACCESS_MASK)Handle->GrantedAccess;
-        PhPrintPointer(handleItem->GrantedAccessString, (PVOID)handleItem->GrantedAccess);
+        PhPrintPointer(handleItem->GrantedAccessString, UlongToPtr(handleItem->GrantedAccess));
     }
 
     PhEmCallObjectOperation(EmHandleItemType, handleItem, EmObjectCreate);
@@ -167,7 +170,7 @@ FORCEINLINE ULONG PhHashHandleItem(
     _In_ PPH_HANDLE_ITEM Value
     )
 {
-    return (ULONG)Value->Handle / 4;
+    return HandleToUlong(Value->Handle) / 4;
 }
 
 PPH_HANDLE_ITEM PhpLookupHandleItem(
@@ -507,7 +510,7 @@ VOID PhHandleProviderUpdate(
         {
             PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = &handles[i];
 
-            if (handle->UniqueProcessId == (USHORT)handleProvider->ProcessId)
+            if (handle->UniqueProcessId == (ULONG_PTR)handleProvider->ProcessId)
             {
                 PhAddItemSimpleHashtable(
                     handleProvider->TempListHashtable,

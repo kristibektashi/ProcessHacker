@@ -2,7 +2,7 @@
  * Process Hacker -
  *   module list
  *
- * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,13 +21,15 @@
  */
 
 #include <phapp.h>
+#include <modlist.h>
+#include <modprv.h>
 #include <settings.h>
 #include <extmgri.h>
 #include <phplug.h>
 #include <emenu.h>
 #include <verify.h>
 
-BOOLEAN PhpModuleNodeHashtableCompareFunction(
+BOOLEAN PhpModuleNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -73,7 +75,7 @@ VOID PhInitializeModuleList(
 
     Context->NodeHashtable = PhCreateHashtable(
         sizeof(PPH_MODULE_NODE),
-        PhpModuleNodeHashtableCompareFunction,
+        PhpModuleNodeHashtableEqualFunction,
         PhpModuleNodeHashtableHashFunction,
         100
         );
@@ -90,23 +92,25 @@ VOID PhInitializeModuleList(
 
     // Default columns
     PhAddTreeNewColumn(hwnd, PHMOTLC_NAME, TRUE, L"Name", 100, PH_ALIGN_LEFT, -2, 0);
-    PhAddTreeNewColumn(hwnd, PHMOTLC_BASEADDRESS, TRUE, L"Base Address", 80, PH_ALIGN_RIGHT, 0, DT_RIGHT);
+    PhAddTreeNewColumn(hwnd, PHMOTLC_BASEADDRESS, TRUE, L"Base address", 80, PH_ALIGN_RIGHT, 0, DT_RIGHT);
     PhAddTreeNewColumnEx(hwnd, PHMOTLC_SIZE, TRUE, L"Size", 60, PH_ALIGN_RIGHT, 1, DT_RIGHT, TRUE);
     PhAddTreeNewColumn(hwnd, PHMOTLC_DESCRIPTION, TRUE, L"Description", 160, PH_ALIGN_LEFT, 2, 0);
 
-    PhAddTreeNewColumn(hwnd, PHMOTLC_COMPANYNAME, FALSE, L"Company Name", 180, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumn(hwnd, PHMOTLC_COMPANYNAME, FALSE, L"Company name", 180, PH_ALIGN_LEFT, -1, 0);
     PhAddTreeNewColumn(hwnd, PHMOTLC_VERSION, FALSE, L"Version", 100, PH_ALIGN_LEFT, -1, 0);
-    PhAddTreeNewColumn(hwnd, PHMOTLC_FILENAME, FALSE, L"File Name", 180, PH_ALIGN_LEFT, -1, DT_PATH_ELLIPSIS);
+    PhAddTreeNewColumn(hwnd, PHMOTLC_FILENAME, FALSE, L"File name", 180, PH_ALIGN_LEFT, -1, DT_PATH_ELLIPSIS);
 
     PhAddTreeNewColumn(hwnd, PHMOTLC_TYPE, FALSE, L"Type", 80, PH_ALIGN_LEFT, -1, 0);
-    PhAddTreeNewColumnEx(hwnd, PHMOTLC_LOADCOUNT, FALSE, L"Load Count", 40, PH_ALIGN_RIGHT, -1, DT_RIGHT, TRUE);
-    PhAddTreeNewColumn(hwnd, PHMOTLC_VERIFICATIONSTATUS, FALSE, L"Verification Status", 70, PH_ALIGN_LEFT, -1, 0);
-    PhAddTreeNewColumn(hwnd, PHMOTLC_VERIFIEDSIGNER, FALSE, L"Verified Signer", 100, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumnEx(hwnd, PHMOTLC_LOADCOUNT, FALSE, L"Load count", 40, PH_ALIGN_RIGHT, -1, DT_RIGHT, TRUE);
+    PhAddTreeNewColumn(hwnd, PHMOTLC_VERIFICATIONSTATUS, FALSE, L"Verification status", 70, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumn(hwnd, PHMOTLC_VERIFIEDSIGNER, FALSE, L"Verified signer", 100, PH_ALIGN_LEFT, -1, 0);
     PhAddTreeNewColumnEx(hwnd, PHMOTLC_ASLR, FALSE, L"ASLR", 50, PH_ALIGN_LEFT, -1, 0, TRUE);
-    PhAddTreeNewColumnEx(hwnd, PHMOTLC_TIMESTAMP, FALSE, L"Time Stamp", 100, PH_ALIGN_LEFT, -1, 0, TRUE);
+    PhAddTreeNewColumnEx(hwnd, PHMOTLC_TIMESTAMP, FALSE, L"Time stamp", 100, PH_ALIGN_LEFT, -1, 0, TRUE);
     PhAddTreeNewColumnEx(hwnd, PHMOTLC_CFGUARD, FALSE, L"CF Guard", 70, PH_ALIGN_LEFT, -1, 0, TRUE);
-    PhAddTreeNewColumnEx(hwnd, PHMOTLC_LOADTIME, FALSE, L"Load Time", 100, PH_ALIGN_LEFT, -1, 0, TRUE);
-    PhAddTreeNewColumn(hwnd, PHMOTLC_LOADREASON, FALSE, L"Load Reason", 80, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumnEx(hwnd, PHMOTLC_LOADTIME, FALSE, L"Load time", 100, PH_ALIGN_LEFT, -1, 0, TRUE);
+    PhAddTreeNewColumn(hwnd, PHMOTLC_LOADREASON, FALSE, L"Load reason", 80, PH_ALIGN_LEFT, -1, 0);
+    PhAddTreeNewColumnEx(hwnd, PHMOTLC_FILEMODIFIEDTIME, FALSE, L"File modified time", 140, PH_ALIGN_LEFT, -1, 0, TRUE);
+    PhAddTreeNewColumnEx(hwnd, PHMOTLC_FILESIZE, FALSE, L"File size", 70, PH_ALIGN_RIGHT, -1, DT_RIGHT, TRUE);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -134,7 +138,7 @@ VOID PhDeleteModuleList(
     PhDereferenceObject(Context->NodeList);
 }
 
-BOOLEAN PhpModuleNodeHashtableCompareFunction(
+BOOLEAN PhpModuleNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -274,11 +278,13 @@ VOID PhpDestroyModuleNode(
 {
     PhEmCallObjectOperation(EmModuleNodeType, ModuleNode, EmObjectDelete);
 
-    if (ModuleNode->TooltipText) PhDereferenceObject(ModuleNode->TooltipText);
+    PhClearReference(&ModuleNode->TooltipText);
 
-    if (ModuleNode->SizeText) PhDereferenceObject(ModuleNode->SizeText);
-    if (ModuleNode->TimeStampText) PhDereferenceObject(ModuleNode->TimeStampText);
-    if (ModuleNode->LoadTimeText) PhDereferenceObject(ModuleNode->LoadTimeText);
+    PhClearReference(&ModuleNode->SizeText);
+    PhClearReference(&ModuleNode->TimeStampText);
+    PhClearReference(&ModuleNode->LoadTimeText);
+    PhClearReference(&ModuleNode->FileModifiedTimeText);
+    PhClearReference(&ModuleNode->FileSizeText);
 
     PhDereferenceObject(ModuleNode->ModuleItem);
 
@@ -479,6 +485,18 @@ BEGIN_SORT_FUNCTION(LoadReason)
 }
 END_SORT_FUNCTION
 
+BEGIN_SORT_FUNCTION(FileModifiedTime)
+{
+    sortResult = int64cmp(moduleItem1->FileLastWriteTime.QuadPart, moduleItem2->FileLastWriteTime.QuadPart);
+}
+END_SORT_FUNCTION
+
+BEGIN_SORT_FUNCTION(FileSize)
+{
+    sortResult = int64cmp(moduleItem1->FileEndOfFile.QuadPart, moduleItem2->FileEndOfFile.QuadPart);
+}
+END_SORT_FUNCTION
+
 BOOLEAN NTAPI PhpModuleTreeNewCallback(
     _In_ HWND hwnd,
     _In_ PH_TREENEW_MESSAGE Message,
@@ -520,7 +538,9 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
                     SORT_FUNCTION(TimeStamp),
                     SORT_FUNCTION(CfGuard),
                     SORT_FUNCTION(LoadTime),
-                    SORT_FUNCTION(LoadReason)
+                    SORT_FUNCTION(LoadReason),
+                    SORT_FUNCTION(FileModifiedTime),
+                    SORT_FUNCTION(FileSize)
                 };
                 int (__cdecl *sortFunction)(void *, const void *, const void *);
 
@@ -609,16 +629,16 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
                         typeString = L"DLL";
                         break;
                     case PH_MODULE_TYPE_MAPPED_FILE:
-                        typeString = L"Mapped File";
+                        typeString = L"Mapped file";
                         break;
                     case PH_MODULE_TYPE_MAPPED_IMAGE:
-                        typeString = L"Mapped Image";
+                        typeString = L"Mapped image";
                         break;
                     case PH_MODULE_TYPE_WOW64_MODULE:
                         typeString = L"WOW64 DLL";
                         break;
                     case PH_MODULE_TYPE_KERNEL_MODULE:
-                        typeString = L"Kernel Module";
+                        typeString = L"Kernel module";
                         break;
                     default:
                         typeString = L"Unknown";
@@ -652,7 +672,7 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
                     moduleItem->Type == PH_MODULE_TYPE_WOW64_MODULE || moduleItem->Type == PH_MODULE_TYPE_MAPPED_IMAGE)
                 {
                     PhInitializeStringRef(&getCellText->Text,
-                        moduleItem->VerifyResult == VrTrusted ? L"Trusted" : L"Not Trusted");
+                        moduleItem->VerifyResult == VrTrusted ? L"Trusted" : L"Not trusted");
                 }
                 else
                 {
@@ -727,25 +747,25 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
                         switch (moduleItem->LoadReason)
                         {
                         case LoadReasonStaticDependency:
-                            string = L"Static Dependency";
+                            string = L"Static dependency";
                             break;
                         case LoadReasonStaticForwarderDependency:
-                            string = L"Static Forwarder Dependency";
+                            string = L"Static forwarder dependency";
                             break;
                         case LoadReasonDynamicForwarderDependency:
-                            string = L"Dynamic Forwarder Dependency";
+                            string = L"Dynamic forwarder dependency";
                             break;
                         case LoadReasonDelayloadDependency:
-                            string = L"Delay Load Dependency";
+                            string = L"Delay load dependency";
                             break;
                         case LoadReasonDynamicLoad:
                             string = L"Dynamic";
                             break;
                         case LoadReasonAsImageLoad:
-                            string = L"As Image";
+                            string = L"As image";
                             break;
                         case LoadReasonAsDataLoad:
-                            string = L"As Data";
+                            string = L"As data";
                             break;
                         default:
                             if (WindowsVersion >= WINDOWS_8)
@@ -757,6 +777,23 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
                     }
 
                     PhInitializeStringRefLongHint(&getCellText->Text, string);
+                }
+                break;
+            case PHMOTLC_FILEMODIFIEDTIME:
+                if (moduleItem->FileLastWriteTime.QuadPart != 0)
+                {
+                    SYSTEMTIME systemTime;
+
+                    PhLargeIntegerToLocalSystemTime(&systemTime, &moduleItem->FileLastWriteTime);
+                    PhMoveReference(&node->FileModifiedTimeText, PhFormatDateTime(&systemTime));
+                    getCellText->Text = node->FileModifiedTimeText->sr;
+                }
+                break;
+            case PHMOTLC_FILESIZE:
+                if (moduleItem->FileEndOfFile.QuadPart != -1)
+                {
+                    PhMoveReference(&node->FileSizeText, PhFormatSize(moduleItem->FileEndOfFile.QuadPart, -1));
+                    getCellText->Text = node->FileSizeText->sr;
                 }
                 break;
             default:
@@ -948,25 +985,21 @@ VOID PhGetSelectedModuleItems(
     _Out_ PULONG NumberOfModules
     )
 {
-    PPH_LIST list;
+    PH_ARRAY array;
     ULONG i;
 
-    list = PhCreateList(2);
+    PhInitializeArray(&array, sizeof(PVOID), 2);
 
     for (i = 0; i < Context->NodeList->Count; i++)
     {
         PPH_MODULE_NODE node = Context->NodeList->Items[i];
 
         if (node->Node.Selected)
-        {
-            PhAddItemList(list, node->ModuleItem);
-        }
+            PhAddItemArray(&array, &node->ModuleItem);
     }
 
-    *Modules = PhAllocateCopy(list->Items, sizeof(PVOID) * list->Count);
-    *NumberOfModules = list->Count;
-
-    PhDereferenceObject(list);
+    *NumberOfModules = (ULONG)array.Count;
+    *Modules = PhFinalArrayItems(&array);
 }
 
 VOID PhDeselectAllModuleNodes(

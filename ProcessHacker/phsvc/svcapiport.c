@@ -119,6 +119,7 @@ NTSTATUS PhSvcApiRequestThreadStart(
     _In_ PVOID Parameter
     )
 {
+    PH_AUTO_POOL autoPool;
     NTSTATUS status;
     PHSVC_THREAD_CONTEXT threadContext;
     HANDLE portHandle;
@@ -129,6 +130,8 @@ NTSTATUS PhSvcApiRequestThreadStart(
     CSHORT messageType;
     PPHSVC_CLIENT client;
     PPHSVC_API_PAYLOAD payload;
+
+    PhInitializeAutoPool(&autoPool);
 
     threadContext.CurrentClient = NULL;
     threadContext.OldClient = NULL;
@@ -194,7 +197,10 @@ NTSTATUS PhSvcApiRequestThreadStart(
         }
 
         assert(!threadContext.OldClient);
+        PhDrainAutoPool(&autoPool);
     }
+
+    PhDeleteAutoPool(&autoPool);
 }
 
 VOID PhSvcHandleConnectionRequest(
@@ -221,7 +227,26 @@ VOID PhSvcHandleConnectionRequest(
     }
     else
     {
+        PPH_STRING referenceFileName;
+        PPH_STRING remoteFileName;
+
         clientId = message->h.ClientId;
+
+        // Make sure that the remote process is Process Hacker itself and not some other program.
+
+        referenceFileName = NULL;
+        PhGetProcessImageFileNameByProcessId(NtCurrentProcessId(), &referenceFileName);
+        PH_AUTO(referenceFileName);
+
+        remoteFileName = NULL;
+        PhGetProcessImageFileNameByProcessId(NtCurrentProcessId(), &remoteFileName);
+        PH_AUTO(remoteFileName);
+
+        if (!referenceFileName || !remoteFileName || !PhEqualString(referenceFileName, remoteFileName, TRUE))
+        {
+            NtAcceptConnectPort(&portHandle, NULL, PortMessage, FALSE, NULL, NULL);
+            return;
+        }
     }
 
     client = PhSvcCreateClient(&clientId);

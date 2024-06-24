@@ -21,6 +21,7 @@
  */
 
 #include <phapp.h>
+#include <lsasup.h>
 
 typedef struct _CHOOSE_PROCESS_DIALOG_CONTEXT
 {
@@ -121,7 +122,7 @@ static VOID PhpRefreshProcessList(
             if (!WINDOWS_HAS_IMAGE_FILE_NAME_BY_PROCESS_ID && process->UniqueProcessId != SYSTEM_PROCESS_ID)
                 PhGetProcessImageFileName(processHandle, &fileName);
 
-            if (NT_SUCCESS(PhOpenProcessToken(&tokenHandle, TOKEN_QUERY, processHandle)))
+            if (NT_SUCCESS(PhOpenProcessToken(processHandle, TOKEN_QUERY, &tokenHandle)))
             {
                 if (NT_SUCCESS(PhGetTokenUser(tokenHandle, &user)))
                 {
@@ -158,7 +159,7 @@ static VOID PhpRefreshProcessList(
         }
 
         // PID
-        PhPrintUInt32(processIdString, (ULONG)process->UniqueProcessId);
+        PhPrintUInt32(processIdString, HandleToUlong(process->UniqueProcessId));
         PhSetListViewSubItem(Context->ListViewHandle, lvItemIndex, 1, processIdString);
 
         // User Name
@@ -237,7 +238,7 @@ INT_PTR CALLBACK PhpChooseProcessDlgProc(
             PhSetControlTheme(lvHandle, L"explorer");
             PhAddListViewColumn(lvHandle, 0, 0, 0, LVCFMT_LEFT, 180, L"Name");
             PhAddListViewColumn(lvHandle, 1, 1, 1, LVCFMT_LEFT, 60, L"PID");
-            PhAddListViewColumn(lvHandle, 2, 2, 2, LVCFMT_LEFT, 160, L"User Name");
+            PhAddListViewColumn(lvHandle, 2, 2, 2, LVCFMT_LEFT, 160, L"User name");
             PhSetExtendedListView(lvHandle);
 
             ListView_SetImageList(lvHandle, context->ImageList, LVSIL_SMALL);

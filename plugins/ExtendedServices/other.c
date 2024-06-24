@@ -20,10 +20,7 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phdk.h>
-#include <windowsx.h>
 #include "extsrv.h"
-#include "resource.h"
 
 typedef struct _SERVICE_OTHER_CONTEXT
 {
@@ -44,14 +41,7 @@ typedef struct _SERVICE_OTHER_CONTEXT
     ULONG OriginalLaunchProtected;
 } SERVICE_OTHER_CONTEXT, *PSERVICE_OTHER_CONTEXT;
 
-#define SIP(String, Integer) { (String), (PVOID)(Integer) }
-
-BOOLEAN EspChangeServiceConfig2(
-    _In_ PWSTR ServiceName,
-    _In_opt_ SC_HANDLE ServiceHandle,
-    _In_ ULONG InfoLevel,
-    _In_ PVOID Info
-    );
+static _RtlCreateServiceSid RtlCreateServiceSid_I = NULL;
 
 static PH_KEY_VALUE_PAIR EspServiceSidTypePairs[] =
 {
@@ -68,8 +58,8 @@ static PH_KEY_VALUE_PAIR EspServiceLaunchProtectedPairs[] =
     SIP(L"Light (Antimalware)", SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT)
 };
 
-WCHAR *EspServiceSidTypeStrings[3] = { L"None", L"Restricted", L"Unrestricted" };
-WCHAR *EspServiceLaunchProtectedStrings[4] = { L"None", L"Full (Windows)", L"Light (Windows)", L"Light (Antimalware)" };
+static WCHAR *EspServiceSidTypeStrings[3] = { L"None", L"Restricted", L"Unrestricted" };
+static WCHAR *EspServiceLaunchProtectedStrings[4] = { L"None", L"Full (Windows)", L"Light (Windows)", L"Light (Antimalware)" };
 
 PWSTR EspGetServiceSidTypeString(
     _In_ ULONG SidType
@@ -247,7 +237,7 @@ NTSTATUS EspLoadOtherInfo(
     return status;
 }
 
-static PPH_STRING EspGetServiceSidString(
+PPH_STRING EspGetServiceSidString(
     _In_ PPH_STRINGREF ServiceName
     )
 {
@@ -257,7 +247,10 @@ static PPH_STRING EspGetServiceSidString(
     PPH_STRING sidString = NULL;
 
     if (!RtlCreateServiceSid_I)
-        return NULL;
+    {
+        if (!(RtlCreateServiceSid_I = PhGetModuleProcAddress(L"ntdll.dll", "RtlCreateServiceSid")))
+            return NULL;
+    }
 
     PhStringRefToUnicodeString(ServiceName, &serviceNameUs);
 
@@ -274,6 +267,33 @@ static PPH_STRING EspGetServiceSidString(
     return sidString;
 }
 
+BOOLEAN EspChangeServiceConfig2(
+    _In_ PWSTR ServiceName,
+    _In_opt_ SC_HANDLE ServiceHandle,
+    _In_ ULONG InfoLevel,
+    _In_ PVOID Info
+    )
+{
+    if (ServiceHandle)
+    {
+        return !!ChangeServiceConfig2(ServiceHandle, InfoLevel, Info);
+    }
+    else
+    {
+        NTSTATUS status;
+
+        if (NT_SUCCESS(status = PhSvcCallChangeServiceConfig2(ServiceName, InfoLevel, Info)))
+        {
+            return TRUE;
+        }
+        else
+        {
+            SetLastError(PhNtStatusToDosError(status));
+            return FALSE;
+        }
+    }
+}
+
 static int __cdecl PrivilegeNameCompareFunction(
     _In_ const void *elem1,
     _In_ const void *elem2
@@ -282,7 +302,7 @@ static int __cdecl PrivilegeNameCompareFunction(
     PWSTR string1 = *(PWSTR *)elem1;
     PWSTR string2 = *(PWSTR *)elem2;
 
-    return wcscmp(string1, string2);
+    return PhCompareStringZ(string1, string2, TRUE);
 }
 
 INT_PTR CALLBACK EspServiceOtherDlgProc(
@@ -327,7 +347,7 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
             PhSetListViewStyle(privilegesLv, FALSE, TRUE);
             PhSetControlTheme(privilegesLv, L"explorer");
             PhAddListViewColumn(privilegesLv, 0, 0, 0, LVCFMT_LEFT, 140, L"Name");
-            PhAddListViewColumn(privilegesLv, 1, 1, 1, LVCFMT_LEFT, 220, L"Display Name");
+            PhAddListViewColumn(privilegesLv, 1, 1, 1, LVCFMT_LEFT, 220, L"Display name");
             PhSetExtendedListView(privilegesLv);
 
             context->PrivilegeList = PhCreateList(32);
@@ -349,14 +369,14 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
                 EnableWindow(GetDlgItem(hwndDlg, IDC_PROTECTION), FALSE);
 
             SetDlgItemText(hwndDlg, IDC_SERVICESID,
-                PhGetStringOrDefault(PhAutoDereferenceObject(EspGetServiceSidString(&serviceItem->Name->sr)), L"N/A"));
+                PhGetStringOrDefault(PH_AUTO(EspGetServiceSidString(&serviceItem->Name->sr)), L"N/A"));
 
             status = EspLoadOtherInfo(hwndDlg, context);
 
             if (!NT_SUCCESS(status))
             {
                 PhShowWarning(hwndDlg, L"Unable to query service information: %s",
-                    ((PPH_STRING)PhAutoDereferenceObject(PhGetNtMessage(status)))->Buffer);
+                    ((PPH_STRING)PH_AUTO(PhGetNtMessage(status)))->Buffer);
             }
 
             context->Ready = TRUE;
@@ -388,7 +408,7 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
                     PPH_LIST choices;
                     PPH_STRING selectedChoice = NULL;
 
-                    choices = PhCreateList(100);
+                    choices = PH_AUTO(PhCreateList(100));
 
                     if (!NT_SUCCESS(status = PhOpenLsaPolicy(&policyHandle, POLICY_VIEW_LOCAL_INFORMATION, NULL)))
                     {
@@ -487,8 +507,6 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
 
                         break;
                     }
-
-                    PhDereferenceObject(choices);
                 }
                 break;
             case IDC_REMOVE:
@@ -565,7 +583,7 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
 
                     SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_NOERROR);
 
-                    launchProtectedString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_PROTECTION)));
+                    launchProtectedString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_PROTECTION)));
                     launchProtected = EspGetServiceLaunchProtectedInteger(launchProtectedString->Buffer);
 
                     if (context->LaunchProtectedValid && launchProtected != 0 && launchProtected != context->OriginalLaunchProtected)
@@ -592,7 +610,7 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
                         {
                             win32Result = GetLastError();
 
-                            if (win32Result == ERROR_ACCESS_DENIED && !PhElevated)
+                            if (win32Result == ERROR_ACCESS_DENIED && !PhGetOwnTokenAttributes().Elevated)
                             {
                                 // Elevate using phsvc.
                                 if (PhUiConnectToPhSvc(hwndDlg, FALSE))
@@ -652,7 +670,7 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
                         {
                             PPH_STRING sidTypeString;
 
-                            sidTypeString = PhAutoDereferenceObject(PhGetWindowText(GetDlgItem(hwndDlg, IDC_SIDTYPE)));
+                            sidTypeString = PH_AUTO(PhGetWindowText(GetDlgItem(hwndDlg, IDC_SIDTYPE)));
                             sidInfo.dwServiceSidType = EspGetServiceSidTypeInteger(sidTypeString->Buffer);
 
                             if (win32Result == 0 && !EspChangeServiceConfig2(context->ServiceItem->Name->Buffer, serviceHandle,
@@ -686,7 +704,7 @@ Done:
                                 hwndDlg,
                                 MB_ICONERROR | MB_RETRYCANCEL,
                                 L"Unable to change service information: %s",
-                                ((PPH_STRING)PhAutoDereferenceObject(PhGetWin32Message(win32Result)))->Buffer
+                                ((PPH_STRING)PH_AUTO(PhGetWin32Message(win32Result)))->Buffer
                                 ) == IDRETRY)
                             {
                                 SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_INVALID);
@@ -711,31 +729,4 @@ Done:
     }
 
     return FALSE;
-}
-
-BOOLEAN EspChangeServiceConfig2(
-    _In_ PWSTR ServiceName,
-    _In_opt_ SC_HANDLE ServiceHandle,
-    _In_ ULONG InfoLevel,
-    _In_ PVOID Info
-    )
-{
-    if (ServiceHandle)
-    {
-        return !!ChangeServiceConfig2(ServiceHandle, InfoLevel, Info);
-    }
-    else
-    {
-        NTSTATUS status;
-
-        if (NT_SUCCESS(status = PhSvcCallChangeServiceConfig2(ServiceName, InfoLevel, Info)))
-        {
-            return TRUE;
-        }
-        else
-        {
-            SetLastError(PhNtStatusToDosError(status));
-            return FALSE;
-        }
-    }
 }

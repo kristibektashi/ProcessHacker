@@ -21,6 +21,8 @@
  */
 
 #include <phapp.h>
+#include <hndlprv.h>
+#include <hndlinfo.h>
 
 typedef struct _HANDLE_STATISTICS_ENTRY
 {
@@ -163,6 +165,7 @@ INT_PTR CALLBACK PhpHandleStatisticsDlgProc(
                 entry->Count++;
             }
 
+            PhCenterWindow(hwndDlg, GetParent(hwndDlg));
             lvHandle = GetDlgItem(hwndDlg, IDC_LIST);
             PhSetListViewStyle(lvHandle, FALSE, TRUE);
             PhSetControlTheme(lvHandle, L"explorer");

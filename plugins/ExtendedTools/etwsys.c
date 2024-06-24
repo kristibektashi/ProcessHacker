@@ -21,8 +21,6 @@
  */
 
 #include "exttools.h"
-#include "resource.h"
-#include <windowsx.h>
 #include "etwsys.h"
 
 static PPH_SYSINFO_SECTION DiskSection;
@@ -100,14 +98,14 @@ BOOLEAN EtpDiskSysInfoSectionCallback(
         {
             PPH_GRAPH_DRAW_INFO drawInfo = Parameter1;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID | PH_GRAPH_USE_LINE_2;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y | PH_GRAPH_LABEL_MAX_Y | PH_GRAPH_USE_LINE_2;
             Section->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
             PhGetDrawInfoGraphBuffers(&Section->GraphState.Buffers, drawInfo, EtDiskReadHistory.Count);
 
             if (!Section->GraphState.Valid)
             {
                 ULONG i;
-                FLOAT max = 0;
+                FLOAT max = 1024 * 1024; // Minimum scaling of 1 MB
 
                 for (i = 0; i < drawInfo->LineDataCount; i++)
                 {
@@ -123,22 +121,24 @@ BOOLEAN EtpDiskSysInfoSectionCallback(
                         max = data1 + data2;
                 }
 
-                // Minimum scaling of 1 MB.
-                if (max < 1024 * 1024)
-                    max = 1024 * 1024;
+                if (max != 0)
+                {
+                    // Scale the data.
 
-                // Scale the data.
+                    PhDivideSinglesBySingle(
+                        Section->GraphState.Data1,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                    PhDivideSinglesBySingle(
+                        Section->GraphState.Data2,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                }
 
-                PhDivideSinglesBySingle(
-                    Section->GraphState.Data1,
-                    max,
-                    drawInfo->LineDataCount
-                    );
-                PhDivideSinglesBySingle(
-                    Section->GraphState.Data2,
-                    max,
-                    drawInfo->LineDataCount
-                    );
+                drawInfo->LabelYFunction = PhSiSizeLabelYFunction;
+                drawInfo->LabelYFunctionParameter = max;
 
                 Section->GraphState.Valid = TRUE;
             }
@@ -158,7 +158,7 @@ BOOLEAN EtpDiskSysInfoSectionCallback(
                 PhaFormatSize(diskRead, -1)->Buffer,
                 PhaFormatSize(diskWrite, -1)->Buffer,
                 PhGetStringOrEmpty(EtpGetMaxDiskString(getTooltipText->Index)),
-                ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                 ));
             getTooltipText->Text = Section->GraphState.TooltipText->sr;
         }
@@ -274,7 +274,7 @@ VOID EtpNotifyDiskGraph(
             PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID | PH_GRAPH_USE_LINE_2;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y | PH_GRAPH_LABEL_MAX_Y | PH_GRAPH_USE_LINE_2;
             DiskSection->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
 
             PhGraphStateGetDrawInfo(
@@ -286,7 +286,7 @@ VOID EtpNotifyDiskGraph(
             if (!DiskGraphState.Valid)
             {
                 ULONG i;
-                FLOAT max = 0;
+                FLOAT max = 1024 * 1024; // Minimum scaling of 1 MB
 
                 for (i = 0; i < drawInfo->LineDataCount; i++)
                 {
@@ -302,22 +302,24 @@ VOID EtpNotifyDiskGraph(
                         max = data1 + data2;
                 }
 
-                // Minimum scaling of 1 MB.
-                if (max < 1024 * 1024)
-                    max = 1024 * 1024;
+                if (max != 0)
+                {
+                    // Scale the data.
 
-                // Scale the data.
+                    PhDivideSinglesBySingle(
+                        DiskGraphState.Data1,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                    PhDivideSinglesBySingle(
+                        DiskGraphState.Data2,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                }
 
-                PhDivideSinglesBySingle(
-                    DiskGraphState.Data1,
-                    max,
-                    drawInfo->LineDataCount
-                    );
-                PhDivideSinglesBySingle(
-                    DiskGraphState.Data2,
-                    max,
-                    drawInfo->LineDataCount
-                    );
+                drawInfo->LabelYFunction = PhSiSizeLabelYFunction;
+                drawInfo->LabelYFunctionParameter = max;
 
                 DiskGraphState.Valid = TRUE;
             }
@@ -342,7 +344,7 @@ VOID EtpNotifyDiskGraph(
                         PhaFormatSize(diskRead, -1)->Buffer,
                         PhaFormatSize(diskWrite, -1)->Buffer,
                         PhGetStringOrEmpty(EtpGetMaxDiskString(getTooltipText->Index)),
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                         ));
                 }
 
@@ -472,14 +474,14 @@ BOOLEAN EtpNetworkSysInfoSectionCallback(
         {
             PPH_GRAPH_DRAW_INFO drawInfo = Parameter1;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID | PH_GRAPH_USE_LINE_2;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y | PH_GRAPH_LABEL_MAX_Y | PH_GRAPH_USE_LINE_2;
             Section->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
             PhGetDrawInfoGraphBuffers(&Section->GraphState.Buffers, drawInfo, EtNetworkReceiveHistory.Count);
 
             if (!Section->GraphState.Valid)
             {
                 ULONG i;
-                FLOAT max = 0;
+                FLOAT max = 1024 * 1024; // Minimum scaling of 1 MB
 
                 for (i = 0; i < drawInfo->LineDataCount; i++)
                 {
@@ -495,22 +497,24 @@ BOOLEAN EtpNetworkSysInfoSectionCallback(
                         max = data1 + data2;
                 }
 
-                // Minimum scaling of 1 MB.
-                if (max < 1024 * 1024)
-                    max = 1024 * 1024;
+                if (max != 0)
+                {
+                    // Scale the data.
 
-                // Scale the data.
+                    PhDivideSinglesBySingle(
+                        Section->GraphState.Data1,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                    PhDivideSinglesBySingle(
+                        Section->GraphState.Data2,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                }
 
-                PhDivideSinglesBySingle(
-                    Section->GraphState.Data1,
-                    max,
-                    drawInfo->LineDataCount
-                    );
-                PhDivideSinglesBySingle(
-                    Section->GraphState.Data2,
-                    max,
-                    drawInfo->LineDataCount
-                    );
+                drawInfo->LabelYFunction = PhSiSizeLabelYFunction;
+                drawInfo->LabelYFunctionParameter = max;
 
                 Section->GraphState.Valid = TRUE;
             }
@@ -530,7 +534,7 @@ BOOLEAN EtpNetworkSysInfoSectionCallback(
                 PhaFormatSize(networkReceive, -1)->Buffer,
                 PhaFormatSize(networkSend, -1)->Buffer,
                 PhGetStringOrEmpty(EtpGetMaxNetworkString(getTooltipText->Index)),
-                ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                 ));
             getTooltipText->Text = Section->GraphState.TooltipText->sr;
         }
@@ -646,7 +650,7 @@ VOID EtpNotifyNetworkGraph(
             PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-            drawInfo->Flags = PH_GRAPH_USE_GRID | PH_GRAPH_USE_LINE_2;
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y | PH_GRAPH_LABEL_MAX_Y | PH_GRAPH_USE_LINE_2;
             NetworkSection->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
 
             PhGraphStateGetDrawInfo(
@@ -658,7 +662,7 @@ VOID EtpNotifyNetworkGraph(
             if (!NetworkGraphState.Valid)
             {
                 ULONG i;
-                FLOAT max = 0;
+                FLOAT max = 1024 * 1024; // Minimum scaling of 1 MB
 
                 for (i = 0; i < drawInfo->LineDataCount; i++)
                 {
@@ -674,22 +678,24 @@ VOID EtpNotifyNetworkGraph(
                         max = data1 + data2;
                 }
 
-                // Minimum scaling of 1 MB.
-                if (max < 1024 * 1024)
-                    max = 1024 * 1024;
+                if (max != 0)
+                {
+                    // Scale the data.
 
-                // Scale the data.
+                    PhDivideSinglesBySingle(
+                        NetworkGraphState.Data1,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                    PhDivideSinglesBySingle(
+                        NetworkGraphState.Data2,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                }
 
-                PhDivideSinglesBySingle(
-                    NetworkGraphState.Data1,
-                    max,
-                    drawInfo->LineDataCount
-                    );
-                PhDivideSinglesBySingle(
-                    NetworkGraphState.Data2,
-                    max,
-                    drawInfo->LineDataCount
-                    );
+                drawInfo->LabelYFunction = PhSiSizeLabelYFunction;
+                drawInfo->LabelYFunctionParameter = max;
 
                 NetworkGraphState.Valid = TRUE;
             }
@@ -714,7 +720,7 @@ VOID EtpNotifyNetworkGraph(
                         PhaFormatSize(networkReceive, -1)->Buffer,
                         PhaFormatSize(networkSend, -1)->Buffer,
                         PhGetStringOrEmpty(EtpGetMaxNetworkString(getTooltipText->Index)),
-                        ((PPH_STRING)PhAutoDereferenceObject(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                         ));
                 }
 

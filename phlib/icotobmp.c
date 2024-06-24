@@ -1,4 +1,5 @@
-#include <phgui.h>
+#include <ph.h>
+#include <guisup.h>
 #include <uxtheme.h>
 
 // code from http://msdn.microsoft.com/en-us/library/bb757020.aspx
@@ -188,9 +189,9 @@ HBITMAP PhIconToBitmap(
         HMODULE uxtheme;
 
         uxtheme = GetModuleHandle(L"uxtheme.dll");
-        BeginBufferedPaint_I = (PVOID)GetProcAddress(uxtheme, "BeginBufferedPaint");
-        EndBufferedPaint_I = (PVOID)GetProcAddress(uxtheme, "EndBufferedPaint");
-        GetBufferedPaintBits_I = (PVOID)GetProcAddress(uxtheme, "GetBufferedPaintBits");
+        BeginBufferedPaint_I = PhGetProcedureAddress(uxtheme, "BeginBufferedPaint", 0);
+        EndBufferedPaint_I = PhGetProcedureAddress(uxtheme, "EndBufferedPaint", 0);
+        GetBufferedPaintBits_I = PhGetProcedureAddress(uxtheme, "GetBufferedPaintBits", 0);
         ImportsInitialized = TRUE;
     }
 

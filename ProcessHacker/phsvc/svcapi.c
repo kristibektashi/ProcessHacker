@@ -23,6 +23,8 @@
 #include <phapp.h>
 #include <secedit.h>
 #include <phsvc.h>
+#include <lsasup.h>
+#include <svcsup.h>
 #include <phplug.h>
 #include <extmgri.h>
 #include <symprv.h>
@@ -234,7 +236,7 @@ NTSTATUS PhSvcCaptureSid(
 
     if (sid)
     {
-        if (String->Length < FIELD_OFFSET(struct _SID, IdentifierAuthority) ||
+        if (String->Length < (ULONG)FIELD_OFFSET(struct _SID, IdentifierAuthority) ||
             String->Length < RtlLengthRequiredSid(((struct _SID *)sid)->SubAuthorityCount) ||
             !RtlValidSid(sid))
         {
@@ -326,6 +328,8 @@ NTSTATUS PhSvcApiPlugin(
 
     if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.Plugin.i.ApiId, FALSE, &apiId)))
     {
+        PH_AUTO(apiId);
+
         if (PhPluginsEnabled &&
             PhEmParseCompoundId(&apiId->sr, &pluginName, &request.SubId) &&
             (plugin = PhFindPlugin2(&pluginName)))
@@ -347,8 +351,6 @@ NTSTATUS PhSvcApiPlugin(
         {
             status = STATUS_NOT_FOUND;
         }
-
-        PhDereferenceObject(apiId);
     }
 
     return status;
@@ -496,34 +498,48 @@ NTSTATUS PhSvcApiControlProcess(
     case PhSvcControlProcessSuspend:
         if (NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_SUSPEND_RESUME, processId)))
         {
-            status = PhSuspendProcess(processHandle);
+            status = NtSuspendProcess(processHandle);
             NtClose(processHandle);
         }
         break;
     case PhSvcControlProcessResume:
         if (NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_SUSPEND_RESUME, processId)))
         {
-            status = PhResumeProcess(processHandle);
+            status = NtResumeProcess(processHandle);
             NtClose(processHandle);
         }
         break;
     case PhSvcControlProcessPriority:
-        if (NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_SET_INFORMATION, processId)))
+        if (processId != SYSTEM_PROCESS_ID)
         {
-            PROCESS_PRIORITY_CLASS priorityClass;
+            if (NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_SET_INFORMATION, processId)))
+            {
+                PROCESS_PRIORITY_CLASS priorityClass;
 
-            priorityClass.Foreground = FALSE;
-            priorityClass.PriorityClass = (UCHAR)Payload->u.ControlProcess.i.Argument;
-            status = NtSetInformationProcess(processHandle, ProcessPriorityClass, &priorityClass, sizeof(PROCESS_PRIORITY_CLASS));
+                priorityClass.Foreground = FALSE;
+                priorityClass.PriorityClass = (UCHAR)Payload->u.ControlProcess.i.Argument;
+                status = NtSetInformationProcess(processHandle, ProcessPriorityClass, &priorityClass, sizeof(PROCESS_PRIORITY_CLASS));
 
-            NtClose(processHandle);
+                NtClose(processHandle);
+            }
+        }
+        else
+        {
+            status = STATUS_UNSUCCESSFUL;
         }
         break;
     case PhSvcControlProcessIoPriority:
-        if (NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_SET_INFORMATION, processId)))
+        if (processId != SYSTEM_PROCESS_ID)
         {
-            status = PhSetProcessIoPriority(processHandle, Payload->u.ControlProcess.i.Argument);
-            NtClose(processHandle);
+            if (NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_SET_INFORMATION, processId)))
+            {
+                status = PhSetProcessIoPriority(processHandle, Payload->u.ControlProcess.i.Argument);
+                NtClose(processHandle);
+            }
+        }
+        else
+        {
+            status = STATUS_UNSUCCESSFUL;
         }
         break;
     default:
@@ -546,6 +562,8 @@ NTSTATUS PhSvcApiControlService(
 
     if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.ControlService.i.ServiceName, FALSE, &serviceName)))
     {
+        PH_AUTO(serviceName);
+
         switch (Payload->u.ControlService.i.Command)
         {
         case PhSvcControlServiceStart:
@@ -632,8 +650,6 @@ NTSTATUS PhSvcApiControlService(
             status = STATUS_INVALID_PARAMETER;
             break;
         }
-
-        PhDereferenceObject(serviceName);
     }
 
     return status;
@@ -1154,21 +1170,21 @@ NTSTATUS PhSvcApiControlThread(
     case PhSvcControlThreadTerminate:
         if (NT_SUCCESS(status = PhOpenThread(&threadHandle, THREAD_TERMINATE, threadId)))
         {
-            status = PhTerminateThread(threadHandle, STATUS_SUCCESS);
+            status = NtTerminateThread(threadHandle, STATUS_SUCCESS);
             NtClose(threadHandle);
         }
         break;
     case PhSvcControlThreadSuspend:
         if (NT_SUCCESS(status = PhOpenThread(&threadHandle, THREAD_SUSPEND_RESUME, threadId)))
         {
-            status = PhSuspendThread(threadHandle, NULL);
+            status = NtSuspendThread(threadHandle, NULL);
             NtClose(threadHandle);
         }
         break;
     case PhSvcControlThreadResume:
         if (NT_SUCCESS(status = PhOpenThread(&threadHandle, THREAD_SUSPEND_RESUME, threadId)))
         {
-            status = PhResumeThread(threadHandle, NULL);
+            status = NtResumeThread(threadHandle, NULL);
             NtClose(threadHandle);
         }
         break;
@@ -1202,14 +1218,14 @@ NTSTATUS PhSvcApiAddAccountRight(
     {
         if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.AddAccountRight.i.UserRight, FALSE, &userRight)))
         {
+            PH_AUTO(userRight);
+
             if (NT_SUCCESS(status = PhOpenLsaPolicy(&policyHandle, POLICY_LOOKUP_NAMES | POLICY_CREATE_ACCOUNT, NULL)))
             {
                 PhStringRefToUnicodeString(&userRight->sr, &userRightUs);
                 status = LsaAddAccountRights(policyHandle, accountSid, &userRightUs, 1);
                 LsaClose(policyHandle);
             }
-
-            PhDereferenceObject(userRight);
         }
 
         PhFree(accountSid);
@@ -1306,10 +1322,10 @@ NTSTATUS PhSvcApiCreateProcessIgnoreIfeoDebugger(
 
     if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.CreateProcessIgnoreIfeoDebugger.i.FileName, FALSE, &fileName)))
     {
+        PH_AUTO(fileName);
+
         if (!PhCreateProcessIgnoreIfeoDebugger(fileName->Buffer))
             status = STATUS_UNSUCCESSFUL;
-
-        PhDereferenceObject(fileName);
     }
 
     return status;
@@ -1328,6 +1344,8 @@ NTSTATUS PhSvcApiSetServiceSecurity(
 
     if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.SetServiceSecurity.i.ServiceName, FALSE, &serviceName)))
     {
+        PH_AUTO(serviceName);
+
         if (NT_SUCCESS(status = PhSvcCaptureSecurityDescriptor(&Payload->u.SetServiceSecurity.i.SecurityDescriptor, FALSE, 0, &securityDescriptor)))
         {
             desiredAccess = 0;
@@ -1365,8 +1383,6 @@ NTSTATUS PhSvcApiSetServiceSecurity(
 
             PhFree(securityDescriptor);
         }
-
-        PhDereferenceObject(serviceName);
     }
 
     return status;
@@ -1387,8 +1403,8 @@ NTSTATUS PhSvcApiLoadDbgHelp(
 
     if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.LoadDbgHelp.i.DbgHelpPath, FALSE, &dbgHelpPath)))
     {
+        PH_AUTO(dbgHelpPath);
         PhLoadDbgHelpFromPath(dbgHelpPath->Buffer);
-        PhDereferenceObject(dbgHelpPath);
         alreadyLoaded = TRUE;
     }
 

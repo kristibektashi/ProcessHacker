@@ -1,7 +1,7 @@
 /*
  * KProcessHacker
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -27,14 +27,6 @@
 #pragma alloc_text(PAGE, KphDynamicImport)
 #endif
 
-_ExfUnblockPushLock ExfUnblockPushLock_I;
-_ObGetObjectType ObGetObjectType_I;
-_PsAcquireProcessExitSynchronization PsAcquireProcessExitSynchronization_I;
-_PsIsProtectedProcess PsIsProtectedProcess_I;
-_PsReleaseProcessExitSynchronization PsReleaseProcessExitSynchronization_I;
-_PsResumeProcess PsResumeProcess_I;
-_PsSuspendProcess PsSuspendProcess_I;
-
 /**
  * Dynamically imports routines.
  */
@@ -43,23 +35,7 @@ VOID KphDynamicImport(
     )
 {
     PAGED_CODE();
-
-    if (KphDynNtVersion >= PHNT_WIN8)
-        ExfUnblockPushLock_I = KphGetSystemRoutineAddress(L"ExfUnblockPushLock");
-    ObGetObjectType_I = KphGetSystemRoutineAddress(L"ObGetObjectType");
-    PsAcquireProcessExitSynchronization_I = KphGetSystemRoutineAddress(L"PsAcquireProcessExitSynchronization");
-    PsIsProtectedProcess_I = KphGetSystemRoutineAddress(L"PsIsProtectedProcess");
-    PsReleaseProcessExitSynchronization_I = KphGetSystemRoutineAddress(L"PsReleaseProcessExitSynchronization");
-    PsResumeProcess_I = KphGetSystemRoutineAddress(L"PsResumeProcess");
-    PsSuspendProcess_I = KphGetSystemRoutineAddress(L"PsSuspendProcess");
-
-    dprintf("ExfUnblockPushLock: 0x%Ix\n", ExfUnblockPushLock_I);
-    dprintf("ObGetObjectType: 0x%Ix\n", ObGetObjectType_I);
-    dprintf("PsAcquireProcessExitSynchronization: 0x%Ix\n", PsAcquireProcessExitSynchronization_I);
-    dprintf("PsIsProtectedProcess: 0x%Ix\n", PsIsProtectedProcess_I);
-    dprintf("PsReleaseProcessExitSynchronization: 0x%Ix\n", PsReleaseProcessExitSynchronization_I);
-    dprintf("PsResumeProcess: 0x%Ix\n", PsResumeProcess_I);
-    dprintf("PsSuspendProcess: 0x%Ix\n", PsSuspendProcess_I);
+    NOTHING;
 }
 
 /**

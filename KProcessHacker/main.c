@@ -1,7 +1,7 @@
 /*
  * KProcessHacker
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -25,6 +25,7 @@
 DRIVER_INITIALIZE DriverEntry;
 DRIVER_UNLOAD DriverUnload;
 __drv_dispatchType(IRP_MJ_CREATE) DRIVER_DISPATCH KphDispatchCreate;
+__drv_dispatchType(IRP_MJ_CLOSE) DRIVER_DISPATCH KphDispatchClose;
 
 ULONG KphpReadIntegerParameter(
     __in_opt HANDLE KeyHandle,
@@ -92,6 +93,7 @@ NTSTATUS DriverEntry(
     // Set up I/O.
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] = KphDispatchCreate;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE] = KphDispatchClose;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = KphDispatchDeviceControl;
     DriverObject->DriverUnload = DriverUnload;
 
@@ -120,14 +122,18 @@ NTSTATUS KphDispatchCreate(
 {
     NTSTATUS status = STATUS_SUCCESS;
     PIO_STACK_LOCATION stackLocation;
+    PFILE_OBJECT fileObject;
     PIO_SECURITY_CONTEXT securityContext;
+    PKPH_CLIENT client;
 
     stackLocation = IoGetCurrentIrpStackLocation(Irp);
+    fileObject = stackLocation->FileObject;
     securityContext = stackLocation->Parameters.Create.SecurityContext;
 
     dprintf("Client (PID %Iu) is connecting\n", PsGetCurrentProcessId());
 
-    if (KphParameters.SecurityLevel == KphSecurityPrivilegeCheck)
+    if (KphParameters.SecurityLevel == KphSecurityPrivilegeCheck ||
+        KphParameters.SecurityLevel == KphSecuritySignatureAndPrivilegeCheck)
     {
         UCHAR requiredPrivilegesBuffer[FIELD_OFFSET(PRIVILEGE_SET, Privilege) + sizeof(LUID_AND_ATTRIBUTES)];
         PPRIVILEGE_SET requiredPrivileges;
@@ -150,6 +156,52 @@ NTSTATUS KphDispatchCreate(
             status = STATUS_PRIVILEGE_NOT_HELD;
             dprintf("Client (PID %Iu) was rejected\n", PsGetCurrentProcessId());
         }
+    }
+
+    if (NT_SUCCESS(status))
+    {
+        client = ExAllocatePoolWithTag(PagedPool, sizeof(KPH_CLIENT), 'ChpK');
+
+        if (client)
+        {
+            memset(client, 0, sizeof(KPH_CLIENT));
+
+            ExInitializeFastMutex(&client->StateMutex);
+            ExInitializeFastMutex(&client->KeyBackoffMutex);
+
+            fileObject->FsContext = client;
+        }
+        else
+        {
+            dprintf("Unable to allocate memory for client (PID %Iu)\n", PsGetCurrentProcessId());
+            status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+    }
+
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+    return status;
+}
+
+NTSTATUS KphDispatchClose(
+    __in PDEVICE_OBJECT DeviceObject,
+    __in PIRP Irp
+    )
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    PIO_STACK_LOCATION stackLocation;
+    PFILE_OBJECT fileObject;
+    PKPH_CLIENT client;
+
+    stackLocation = IoGetCurrentIrpStackLocation(Irp);
+    fileObject = stackLocation->FileObject;
+    client = fileObject->FsContext;
+
+    if (client)
+    {
+        ExFreePoolWithTag(client, 'ChpK');
     }
 
     Irp->IoStatus.Status = status;
@@ -268,9 +320,6 @@ NTSTATUS KphpReadDriverParameters(
     RtlInitUnicodeString(&valueName, L"SecurityLevel");
     KphParameters.SecurityLevel = KphpReadIntegerParameter(parametersKeyHandle, &valueName, KphSecurityPrivilegeCheck);
 
-    RtlInitUnicodeString(&valueName, L"DisableDynamicProcedureScan");
-    KphParameters.DisableDynamicProcedureScan = KphpReadIntegerParameter(parametersKeyHandle, &valueName, FALSE);
-
     KphReadDynamicDataParameters(parametersKeyHandle);
 
     if (parametersKeyHandle)
@@ -304,106 +353,4 @@ NTSTATUS KpiGetFeatures(
     }
 
     return STATUS_SUCCESS;
-}
-
-/**
- * Enumerates the modules loaded by the kernel.
- *
- * \param Modules A variable which receives a pointer
- * to a structure containing information about
- * the kernel modules. The structure must be freed with
- * the tag 'ThpK'.
- */
-NTSTATUS KphEnumerateSystemModules(
-    __out PRTL_PROCESS_MODULES *Modules
-    )
-{
-    NTSTATUS status;
-    PVOID buffer;
-    ULONG bufferSize;
-    ULONG attempts;
-
-    bufferSize = 2048;
-    attempts = 8;
-
-    do
-    {
-        buffer = ExAllocatePoolWithTag(PagedPool, bufferSize, 'ThpK');
-
-        if (!buffer)
-        {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-            break;
-        }
-
-        status = ZwQuerySystemInformation(
-            SystemModuleInformation,
-            buffer,
-            bufferSize,
-            &bufferSize
-            );
-
-        if (NT_SUCCESS(status))
-        {
-            *Modules = buffer;
-
-            return status;
-        }
-
-        ExFreePoolWithTag(buffer, 'ThpK');
-
-        if (status != STATUS_INFO_LENGTH_MISMATCH)
-        {
-            break;
-        }
-    } while (--attempts);
-
-    return status;
-}
-
-/**
- * Checks if an address range lies within a kernel module.
- *
- * \param Address The beginning of the address range.
- * \param Length The number of bytes in the address range.
- */
-NTSTATUS KphValidateAddressForSystemModules(
-    __in PVOID Address,
-    __in SIZE_T Length
-    )
-{
-    NTSTATUS status;
-    PRTL_PROCESS_MODULES modules;
-    ULONG i;
-    BOOLEAN valid;
-
-    status = KphEnumerateSystemModules(&modules);
-
-    if (!NT_SUCCESS(status))
-        return status;
-
-    valid = FALSE;
-
-    for (i = 0; i < modules->NumberOfModules; i++)
-    {
-        if (
-            (ULONG_PTR)Address + Length >= (ULONG_PTR)Address &&
-            (ULONG_PTR)Address >= (ULONG_PTR)modules->Modules[i].ImageBase &&
-            (ULONG_PTR)Address + Length <= (ULONG_PTR)modules->Modules[i].ImageBase + modules->Modules[i].ImageSize
-            )
-        {
-            dprintf("Validated address 0x%Ix in %s\n", Address, modules->Modules[i].FullPathName);
-            valid = TRUE;
-            break;
-        }
-    }
-
-    ExFreePoolWithTag(modules, 'ThpK');
-
-    if (valid)
-        status = STATUS_SUCCESS;
-    else
-        status = STATUS_ACCESS_VIOLATION;
-
-    return status;
 }

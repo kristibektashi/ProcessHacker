@@ -2,7 +2,7 @@
  * Process Hacker -
  *   module provider
  *
- * Copyright (C) 2009-2015 wj32
+ * Copyright (C) 2009-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,6 +21,10 @@
  */
 
 #include <phapp.h>
+#include <modprv.h>
+#include <procprv.h>
+#include <workqueue.h>
+#include <mapimg.h>
 #include <verify.h>
 #include <extmgri.h>
 
@@ -44,7 +48,7 @@ VOID NTAPI PhpModuleItemDeleteProcedure(
     _In_ ULONG Flags
     );
 
-BOOLEAN NTAPI PhpModuleHashtableCompareFunction(
+BOOLEAN NTAPI PhpModuleHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -80,7 +84,7 @@ PPH_MODULE_PROVIDER PhCreateModuleProvider(
 
     moduleProvider->ModuleHashtable = PhCreateHashtable(
         sizeof(PPH_MODULE_ITEM),
-        PhpModuleHashtableCompareFunction,
+        PhpModuleHashtableEqualFunction,
         PhpModuleHashtableHashFunction,
         20
         );
@@ -201,7 +205,7 @@ VOID PhpModuleItemDeleteProcedure(
     PhDeleteImageVersionInfo(&moduleItem->VersionInfo);
 }
 
-BOOLEAN NTAPI PhpModuleHashtableCompareFunction(
+BOOLEAN NTAPI PhpModuleHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -306,6 +310,7 @@ VOID PhpQueueModuleQuery(
     )
 {
     PPH_MODULE_QUERY_DATA data;
+    PH_WORK_QUEUE_ENVIRONMENT environment;
 
     if (!PhEnableProcessQueryStage2)
         return;
@@ -317,7 +322,13 @@ VOID PhpQueueModuleQuery(
 
     PhReferenceObject(ModuleProvider);
     PhReferenceObject(ModuleItem);
-    PhQueueItemGlobalWorkQueue(PhpModuleQueryWorker, data);
+
+    PhInitializeWorkQueueEnvironment(&environment);
+    environment.BasePriority = THREAD_PRIORITY_BELOW_NORMAL;
+    environment.IoPriority = IoPriorityLow;
+    environment.PagePriority = MEMORY_PRIORITY_LOW;
+
+    PhQueueItemWorkQueueEx(PhGetGlobalWorkQueue(), PhpModuleQueryWorker, data, NULL, &environment);
 }
 
 static BOOLEAN NTAPI EnumModulesCallback(
@@ -375,7 +386,8 @@ VOID PhModuleProviderUpdate(
             {
                 PPH_MODULE_INFO module = modules->Items[i];
 
-                if ((*moduleItem)->BaseAddress == module->BaseAddress && PhEqualString((*moduleItem)->FileName, module->FileName, TRUE))
+                if ((*moduleItem)->BaseAddress == module->BaseAddress &&
+                    PhEqualString((*moduleItem)->FileName, module->FileName, TRUE))
                 {
                     found = TRUE;
                     break;
@@ -442,6 +454,8 @@ VOID PhModuleProviderUpdate(
 
         if (!moduleItem)
         {
+            FILE_NETWORK_OPEN_INFORMATION networkOpenInfo;
+
             moduleItem = PhCreateModuleItem();
 
             moduleItem->BaseAddress = module->BaseAddress;
@@ -458,10 +472,7 @@ VOID PhModuleProviderUpdate(
             moduleItem->FileName = module->FileName;
             PhReferenceObject(moduleItem->FileName);
 
-            PhInitializeImageVersionInfo(
-                &moduleItem->VersionInfo,
-                PhGetString(moduleItem->FileName)
-                );
+            PhInitializeImageVersionInfo(&moduleItem->VersionInfo, moduleItem->FileName->Buffer);
 
             moduleItem->IsFirst = i == 0;
 
@@ -511,6 +522,16 @@ VOID PhModuleProviderUpdate(
 
                     PhUnloadRemoteMappedImage(&remoteMappedImage);
                 }
+            }
+
+            if (NT_SUCCESS(PhQueryFullAttributesFileWin32(moduleItem->FileName->Buffer, &networkOpenInfo)))
+            {
+                moduleItem->FileLastWriteTime = networkOpenInfo.LastWriteTime;
+                moduleItem->FileEndOfFile = networkOpenInfo.EndOfFile;
+            }
+            else
+            {
+                moduleItem->FileEndOfFile.QuadPart = -1;
             }
 
             if (moduleItem->Type == PH_MODULE_TYPE_MODULE || moduleItem->Type == PH_MODULE_TYPE_KERNEL_MODULE ||

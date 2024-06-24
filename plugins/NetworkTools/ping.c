@@ -27,39 +27,48 @@
 static RECT NormalGraphTextMargin = { 5, 5, 5, 5 };
 static RECT NormalGraphTextPadding = { 3, 3, 3, 3 };
 
-static HFONT InitializeFont(
+HFONT InitializeFont(
     _In_ HWND hwnd
     )
 {
-    HFONT fontHandle;
-    NONCLIENTMETRICS metrics = { sizeof(NONCLIENTMETRICS) };
+    LOGFONT logFont;
 
-    if (SystemParametersInfo(SPI_GETNONCLIENTMETRICS, 0, &metrics, 0))
+    // Create the font handle
+    if (SystemParametersInfo(SPI_GETICONTITLELOGFONT, sizeof(LOGFONT), &logFont, 0))
     {
-        metrics.lfMessageFont.lfHeight = -15;
-        //metrics.lfMessageFont.lfWeight = FW_MEDIUM;
-        //metrics.lfMessageFont.lfQuality = CLEARTYPE_QUALITY | ANTIALIASED_QUALITY;
+        HDC hdc;
 
-        fontHandle = CreateFontIndirect(&metrics.lfMessageFont);
+        if (hdc = GetDC(hwnd))
+        {
+            HFONT fontHandle = CreateFont(
+                -MulDiv(-15, GetDeviceCaps(hdc, LOGPIXELSY), 72),
+                0,
+                0,
+                0,
+                FW_MEDIUM,
+                FALSE,
+                FALSE,
+                FALSE,
+                ANSI_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY | ANTIALIASED_QUALITY,
+                DEFAULT_PITCH,
+                logFont.lfFaceName
+                );
+
+            SendMessage(hwnd, WM_SETFONT, (WPARAM)fontHandle, TRUE);
+
+            ReleaseDC(hwnd, hdc);
+
+            return fontHandle;
+        }
     }
-    else
-    {
-        LOGFONT font;
 
-        GetObject((HFONT)GetStockObject(DEFAULT_GUI_FONT), sizeof(LOGFONT), &font);
-
-        font.lfHeight = -15;
-        font.lfWeight = FW_MEDIUM;
-
-        fontHandle = CreateFontIndirect(&font);
-    }
-
-    SendMessage(hwnd, WM_SETFONT, (WPARAM)fontHandle, TRUE);
-
-    return fontHandle;
+    return NULL;
 }
 
-static VOID PhNetworkPingUpdateGraph(
+VOID NetworkPingUpdateGraph(
     _In_ PNETWORK_OUTPUT_CONTEXT Context
     )
 {
@@ -77,7 +86,7 @@ static VOID PhNetworkPingUpdateGraph(
  * \param Format The format-control string.
  * \param ArgPtr A pointer to the list of arguments.
  */
-static PPH_BYTES PhFormatAnsiString_V(
+PPH_BYTES FormatAnsiString_V(
     _In_ _Printf_format_string_ PSTR Format,
     _In_ va_list ArgPtr
     )
@@ -106,7 +115,7 @@ static PPH_BYTES PhFormatAnsiString_V(
  *
  * \param Format The format-control string.
  */
-static PPH_BYTES PhFormatAnsiString(
+PPH_BYTES FormatAnsiString(
     _In_ _Printf_format_string_ PSTR Format,
     ...
     )
@@ -115,10 +124,10 @@ static PPH_BYTES PhFormatAnsiString(
 
     va_start(argptr, Format);
 
-    return PhFormatAnsiString_V(Format, argptr);
+    return FormatAnsiString_V(Format, argptr);
 }
 
-static ULONG PhNetworkPingThreadStart(
+NTSTATUS NetworkPingThreadStart(
     _In_ PVOID Parameter
     )
 {
@@ -147,7 +156,7 @@ static ULONG PhNetworkPingThreadStart(
             __leave;
 
         // Create ICMP echo buffer.
-        if ((icmpEchoBuffer = PhFormatAnsiString("processhacker_%S_0x0D06F00D_x1", phVersion->Buffer)) == NULL)
+        if ((icmpEchoBuffer = FormatAnsiString("processhacker_%S_0x0D06F00D_x1", phVersion->Buffer)) == NULL)
             __leave;
 
         if (context->IpAddress.Type == PH_IPV6_NETWORK_TYPE)
@@ -367,7 +376,7 @@ static ULONG PhNetworkPingThreadStart(
     return STATUS_SUCCESS;
 }
 
-static VOID NTAPI NetworkPingUpdateHandler(
+VOID NTAPI NetworkPingUpdateHandler(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -377,12 +386,12 @@ static VOID NTAPI NetworkPingUpdateHandler(
     // Queue up the next ping into our work queue...
     PhQueueItemWorkQueue(
         &context->PingWorkQueue,
-        PhNetworkPingThreadStart,
+        NetworkPingThreadStart,
         (PVOID)context
         );
 }
 
-static INT_PTR CALLBACK NetworkPingWndProc(
+INT_PTR CALLBACK NetworkPingWndProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -423,7 +432,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
             context->MaxPingTimeout = PhGetIntegerSetting(SETTING_NAME_PING_TIMEOUT);
 
             windowRectangle.Position = PhGetIntegerPairSetting(SETTING_NAME_PING_WINDOW_POSITION);
-            windowRectangle.Size = PhGetIntegerPairSetting(SETTING_NAME_PING_WINDOW_SIZE);
+            windowRectangle.Size = PhGetScalableIntegerPairSetting(SETTING_NAME_PING_WINDOW_SIZE, TRUE).Pair;
 
             // Create the font handle.
             context->FontHandle = InitializeFont(context->StatusHandle);
@@ -446,7 +455,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
 
             // Load the Process Hacker icon.
             context->IconHandle = (HICON)LoadImage(
-                GetModuleHandle(NULL),
+                NtCurrentPeb()->ImageBaseAddress,
                 MAKEINTRESOURCE(PHAPP_IDI_PROCESSHACKER),
                 IMAGE_ICON,
                 GetSystemMetrics(SM_CXICON),
@@ -500,7 +509,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
             SetWindowText(context->StatusHandle, PhaFormatString(L"Pinging %s with 32 bytes of data:", context->IpAddressString)->Buffer);
 
             PhRegisterCallback(
-                PhGetGeneralCallback(GeneralCallbackProcessesUpdated),
+                &PhProcessesUpdatedEvent,
                 NetworkPingUpdateHandler,
                 context,
                 &context->ProcessesUpdatedRegistration
@@ -513,7 +522,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
             {
             case IDCANCEL:
             case IDOK:
-                PostQuitMessage(0);
+                DestroyWindow(hwndDlg);
                 break;
             }
         }
@@ -521,7 +530,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
     case WM_DESTROY:
         {
             PhUnregisterCallback(
-                PhGetGeneralCallback(GeneralCallbackProcessesUpdated),
+                &PhProcessesUpdatedEvent,
                 &context->ProcessesUpdatedRegistration
                 );
 
@@ -546,6 +555,8 @@ static INT_PTR CALLBACK NetworkPingWndProc(
 
             RemoveProp(hwndDlg, L"Context");
             PhFree(context);
+
+            PostQuitMessage(0);
         }
         break;
     case WM_SIZE:
@@ -580,7 +591,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
             ULONG maxGraphHeight = 0;
             ULONG pingAvgValue = 0;
 
-            PhNetworkPingUpdateGraph(context);
+            NetworkPingUpdateGraph(context);
 
             for (i = 0; i < context->PingHistory.Count; i++)
             {
@@ -596,16 +607,16 @@ static INT_PTR CALLBACK NetworkPingWndProc(
                 L"Maximum: %lums", context->PingMaxMs)->Buffer);
 
             SetDlgItemText(hwndDlg, IDC_PINGS_SENT, PhaFormatString(
-                L"Pings Sent: %lu", context->PingSentCount)->Buffer);
+                L"Pings sent: %lu", context->PingSentCount)->Buffer);
             SetDlgItemText(hwndDlg, IDC_PINGS_LOST, PhaFormatString(
-                L"Pings Lost: %lu (%.0f%%)", context->PingLossCount,
+                L"Pings lost: %lu (%.0f%%)", context->PingLossCount,
                 ((FLOAT)context->PingLossCount / context->PingSentCount * 100)
                 )->Buffer);
 
             SetDlgItemText(hwndDlg, IDC_BAD_HASH, PhaFormatString(
-                L"Bad Hashes: %lu", context->HashFailCount)->Buffer);
+                L"Bad hashes: %lu", context->HashFailCount)->Buffer);
             SetDlgItemText(hwndDlg, IDC_ANON_ADDR, PhaFormatString(
-                L"Anon Replies: %lu", context->UnknownAddrCount)->Buffer);
+                L"Anon replies: %lu", context->UnknownAddrCount)->Buffer);
         }
         break;
     case WM_NOTIFY:
@@ -619,8 +630,6 @@ static INT_PTR CALLBACK NetworkPingWndProc(
                     PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)header;
                     PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-                    PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorCpuKernel"), PhGetIntegerSetting(L"ColorCpuUser"));
-
                     if (header->hwndFrom == context->PingGraphHandle)
                     {
                         if (PhGetIntegerSetting(L"GraphShowText"))
@@ -628,7 +637,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
                             HDC hdc = Graph_GetBufferedContext(context->PingGraphHandle);
 
                             PhMoveReference(&context->PingGraphState.Text,
-                                PhFormatString(L"Ping: %ums", context->CurrentPingMs)
+                                PhFormatString(L"Ping: %lums", context->CurrentPingMs)
                                 );
 
                             SelectObject(hdc, PhApplicationFont);
@@ -640,11 +649,9 @@ static INT_PTR CALLBACK NetworkPingWndProc(
                             drawInfo->Text.Buffer = NULL;
                         }
 
-                        PhGraphStateGetDrawInfo(
-                            &context->PingGraphState,
-                            getDrawInfo,
-                            context->PingHistory.Count
-                            );
+                        drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y;
+                        PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorCpuKernel"), 0);
+                        PhGraphStateGetDrawInfo(&context->PingGraphState, getDrawInfo, context->PingHistory.Count);
 
                         if (!context->PingGraphState.Valid)
                         {
@@ -666,7 +673,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
                                 max = (FLOAT)context->MaxPingTimeout;
 
                             // Scale the data.
-                            PhxfDivideSingle2U(
+                            PhDivideSinglesBySingle(
                                 context->PingGraphState.Data1,
                                 max,
                                 drawInfo->LineDataCount
@@ -690,7 +697,7 @@ static INT_PTR CALLBACK NetworkPingWndProc(
                                 ULONG pingMs = PhGetItemCircularBuffer_ULONG(&context->PingHistory, getTooltipText->Index);
 
                                 PhMoveReference(&context->PingGraphState.TooltipText,
-                                    PhFormatString(L"Ping: %ums", pingMs)
+                                    PhFormatString(L"Ping: %lums", pingMs)
                                     );
                             }
 
@@ -745,7 +752,6 @@ NTSTATUS PhNetworkPingDialogThreadStart(
     }
 
     PhDeleteAutoPool(&autoPool);
-    DestroyWindow(windowHandle);
 
     return STATUS_SUCCESS;
 }

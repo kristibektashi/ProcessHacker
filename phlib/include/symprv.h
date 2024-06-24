@@ -1,6 +1,10 @@
 #ifndef _PH_SYMPRV_H
 #define _PH_SYMPRV_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern PPH_OBJECT_TYPE PhSymbolProviderType;
 extern PH_CALLBACK PhSymInitCallback;
 
@@ -61,12 +65,14 @@ typedef struct _PH_SYMBOL_EVENT_DATA
     PPH_STRING FileName;
 } PH_SYMBOL_EVENT_DATA, *PPH_SYMBOL_EVENT_DATA;
 
+PHLIBAPI
 BOOLEAN
 NTAPI
 PhSymbolProviderInitialization(
     VOID
     );
 
+PHLIBAPI
 VOID
 NTAPI
 PhSymbolProviderCompleteInitialization(
@@ -148,6 +154,7 @@ PhSetSearchPathSymbolProvider(
     );
 
 #ifdef _WIN64
+PHLIBAPI
 NTSTATUS
 NTAPI
 PhAccessOutOfProcessFunctionEntry(
@@ -157,6 +164,7 @@ PhAccessOutOfProcessFunctionEntry(
     );
 #endif
 
+PHLIBAPI
 ULONG64
 __stdcall
 PhGetModuleBase64(
@@ -164,6 +172,7 @@ PhGetModuleBase64(
     _In_ DWORD64 dwAddr
     );
 
+PHLIBAPI
 PVOID
 __stdcall
 PhFunctionTableAccess64(
@@ -262,16 +271,12 @@ typedef struct _PH_THREAD_STACK_FRAME
 #define PH_WALK_KERNEL_STACK 0x10
 
 /**
- * A callback function passed to PhWalkThreadStack()
- * and called for each stack frame.
+ * A callback function passed to PhWalkThreadStack() and called for each stack frame.
  *
- * \param StackFrame A structure providing information about
- * the stack frame.
- * \param Context A user-defined value passed to
- * PhWalkThreadStack().
+ * \param StackFrame A structure providing information about the stack frame.
+ * \param Context A user-defined value passed to PhWalkThreadStack().
  *
- * \return TRUE to continue the stack walk, FALSE to
- * stop.
+ * \return TRUE to continue the stack walk, FALSE to stop.
  */
 typedef BOOLEAN (NTAPI *PPH_WALK_THREAD_STACK_CALLBACK)(
     _In_ PPH_THREAD_STACK_FRAME StackFrame,
@@ -290,5 +295,9 @@ PhWalkThreadStack(
     _In_ PPH_WALK_THREAD_STACK_CALLBACK Callback,
     _In_opt_ PVOID Context
     );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

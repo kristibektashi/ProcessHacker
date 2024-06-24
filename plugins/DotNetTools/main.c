@@ -3,6 +3,7 @@
  *   main program
  *
  * Copyright (C) 2011-2015 wj32
+ * Copyright (C) 2015-2016 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -21,250 +22,23 @@
  */
 
 #include "dn.h"
-#include "resource.h"
-
-VOID NTAPI LoadCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI UnloadCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ShowOptionsCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI MenuItemCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI TreeNewMessageCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI PhSvcRequestCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI MainWindowShowingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessPropertiesInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ThreadMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ModuleMenuInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ProcessTreeNewInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ThreadTreeNewInitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ThreadTreeNewUninitializingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ThreadStackControlCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
-    );
-
-VOID NTAPI ThreadItemCreateCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    );
-
-VOID NTAPI ThreadItemDeleteCallback(
-    _In_ PVOID Object,
-    _In_ PH_EM_OBJECT_TYPE ObjectType,
-    _In_ PVOID Extension
-    );
 
 PPH_PLUGIN PluginInstance;
-PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
-PH_CALLBACK_REGISTRATION PluginUnloadCallbackRegistration;
-PH_CALLBACK_REGISTRATION PluginShowOptionsCallbackRegistration;
-PH_CALLBACK_REGISTRATION PluginMenuItemCallbackRegistration;
-PH_CALLBACK_REGISTRATION PluginTreeNewMessageCallbackRegistration;
-PH_CALLBACK_REGISTRATION PluginPhSvcRequestCallbackRegistration;
-PH_CALLBACK_REGISTRATION MainWindowShowingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ProcessPropertiesInitializingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ProcessMenuInitializingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ThreadMenuInitializingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ModuleMenuInitializingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ProcessTreeNewInitializingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ThreadTreeNewInitializingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ThreadTreeNewUninitializingCallbackRegistration;
-PH_CALLBACK_REGISTRATION ThreadStackControlCallbackRegistration;
-
-LOGICAL DllMain(
-    _In_ HINSTANCE Instance,
-    _In_ ULONG Reason,
-    _Reserved_ PVOID Reserved
-    )
-{
-    switch (Reason)
-    {
-    case DLL_PROCESS_ATTACH:
-        {
-            PPH_PLUGIN_INFORMATION info;
-
-            PluginInstance = PhRegisterPlugin(PLUGIN_NAME, Instance, &info);
-
-            if (!PluginInstance)
-                return FALSE;
-
-            info->DisplayName = L".NET Tools";
-            info->Author = L"wj32";
-            info->Description = L"Adds .NET performance counters, assembly information, thread stack support, and more.";
-            info->Url = L"http://processhacker.sf.net/forums/viewtopic.php?t=1111";
-            info->HasOptions = FALSE;
-
-            PhRegisterCallback(
-                PhGetPluginCallback(PluginInstance, PluginCallbackLoad),
-                LoadCallback,
-                NULL,
-                &PluginLoadCallbackRegistration
-                );
-            PhRegisterCallback(
-                PhGetPluginCallback(PluginInstance, PluginCallbackUnload),
-                UnloadCallback,
-                NULL,
-                &PluginUnloadCallbackRegistration
-                );
-            PhRegisterCallback(
-                PhGetPluginCallback(PluginInstance, PluginCallbackShowOptions),
-                ShowOptionsCallback,
-                NULL,
-                &PluginShowOptionsCallbackRegistration
-                );
-            //PhRegisterCallback(
-            //    PhGetPluginCallback(PluginInstance, PluginCallbackMenuItem),
-            //    MenuItemCallback,
-            //    NULL,
-            //    &PluginMenuItemCallbackRegistration
-            //    );
-            PhRegisterCallback(
-                PhGetPluginCallback(PluginInstance, PluginCallbackTreeNewMessage),
-                TreeNewMessageCallback,
-                NULL,
-                &PluginTreeNewMessageCallbackRegistration
-                );
-            PhRegisterCallback(
-                PhGetPluginCallback(PluginInstance, PluginCallbackPhSvcRequest),
-                PhSvcRequestCallback,
-                NULL,
-                &PluginPhSvcRequestCallbackRegistration
-                );
-
-            //PhRegisterCallback(
-            //    PhGetGeneralCallback(GeneralCallbackMainWindowShowing),
-            //    MainWindowShowingCallback,
-            //    NULL,
-            //    &MainWindowShowingCallbackRegistration
-            //    );
-            PhRegisterCallback(
-                PhGetGeneralCallback(GeneralCallbackProcessPropertiesInitializing),
-                ProcessPropertiesInitializingCallback,
-                NULL,
-                &ProcessPropertiesInitializingCallbackRegistration
-                );
-            //PhRegisterCallback(
-            //    PhGetGeneralCallback(GeneralCallbackProcessMenuInitializing),
-            //    ProcessMenuInitializingCallback,
-            //    NULL,
-            //    &ProcessMenuInitializingCallbackRegistration
-            //    );
-            //PhRegisterCallback(
-            //    PhGetGeneralCallback(GeneralCallbackThreadMenuInitializing),
-            //    ThreadMenuInitializingCallback,
-            //    NULL,
-            //    &ThreadMenuInitializingCallbackRegistration
-            //    );
-            //PhRegisterCallback(
-            //    PhGetGeneralCallback(GeneralCallbackModuleMenuInitializing),
-            //    ModuleMenuInitializingCallback,
-            //    NULL,
-            //    &ModuleMenuInitializingCallbackRegistration
-            //    );
-            //PhRegisterCallback(
-            //    PhGetGeneralCallback(GeneralCallbackProcessTreeNewInitializing),
-            //    ProcessTreeNewInitializingCallback,
-            //    NULL,
-            //    &ProcessTreeNewInitializingCallbackRegistration
-            //    );
-            PhRegisterCallback(
-                PhGetGeneralCallback(GeneralCallbackThreadTreeNewInitializing),
-                ThreadTreeNewInitializingCallback,
-                NULL,
-                &ThreadTreeNewInitializingCallbackRegistration
-                );
-            PhRegisterCallback(
-                PhGetGeneralCallback(GeneralCallbackThreadTreeNewUninitializing),
-                ThreadTreeNewUninitializingCallback,
-                NULL,
-                &ThreadTreeNewUninitializingCallbackRegistration
-                );
-            PhRegisterCallback(
-                PhGetGeneralCallback(GeneralCallbackThreadStackControl),
-                ThreadStackControlCallback,
-                NULL,
-                &ThreadStackControlCallbackRegistration
-                );
-
-            PhPluginSetObjectExtension(
-                PluginInstance,
-                EmThreadItemType,
-                sizeof(DN_THREAD_ITEM),
-                ThreadItemCreateCallback,
-                ThreadItemDeleteCallback
-                );
-            InitializeTreeNewObjectExtensions();
-
-            {
-                static PH_SETTING_CREATE settings[] =
-                {
-                    { StringSettingType, SETTING_NAME_ASM_TREE_LIST_COLUMNS, L"" }
-                };
-
-                PhAddSettings(settings, sizeof(settings) / sizeof(PH_SETTING_CREATE));
-            }
-        }
-        break;
-    }
-
-    return TRUE;
-}
+static PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
+static PH_CALLBACK_REGISTRATION PluginUnloadCallbackRegistration;
+static PH_CALLBACK_REGISTRATION PluginShowOptionsCallbackRegistration;
+static PH_CALLBACK_REGISTRATION PluginMenuItemCallbackRegistration;
+static PH_CALLBACK_REGISTRATION PluginTreeNewMessageCallbackRegistration;
+static PH_CALLBACK_REGISTRATION PluginPhSvcRequestCallbackRegistration;
+static PH_CALLBACK_REGISTRATION MainWindowShowingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ProcessPropertiesInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ProcessMenuInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ThreadMenuInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ModuleMenuInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ProcessTreeNewInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ThreadTreeNewInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ThreadTreeNewUninitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION ThreadStackControlCallbackRegistration;
 
 VOID NTAPI LoadCallback(
     _In_opt_ PVOID Parameter,
@@ -420,4 +194,143 @@ VOID NTAPI ThreadItemDeleteCallback(
     PDN_THREAD_ITEM dnThread = Extension;
 
     PhClearReference(&dnThread->AppDomainText);
+}
+
+LOGICAL DllMain(
+    _In_ HINSTANCE Instance,
+    _In_ ULONG Reason,
+    _Reserved_ PVOID Reserved
+    )
+{
+    switch (Reason)
+    {
+    case DLL_PROCESS_ATTACH:
+        {
+            PPH_PLUGIN_INFORMATION info;
+            PH_SETTING_CREATE settings[] =
+            {
+                { StringSettingType, SETTING_NAME_ASM_TREE_LIST_COLUMNS, L"" },
+                { IntegerSettingType, SETTING_NAME_DOT_NET_CATEGORY_INDEX, L"5" },
+                { StringSettingType, SETTING_NAME_DOT_NET_COUNTERS_COLUMNS, L"" },
+                { IntegerSettingType, SETTING_NAME_DOT_NET_SHOW_BYTE_SIZE, L"1" }
+            };
+
+            PluginInstance = PhRegisterPlugin(PLUGIN_NAME, Instance, &info);
+
+            if (!PluginInstance)
+                return FALSE;
+
+            info->DisplayName = L".NET Tools";
+            info->Author = L"dmex, wj32";
+            info->Description = L"Adds .NET performance counters, assembly information, thread stack support, and more.";
+            info->Url = L"https://wj32.org/processhacker/forums/viewtopic.php?t=1111";
+            info->HasOptions = FALSE;
+
+            PhRegisterCallback(
+                PhGetPluginCallback(PluginInstance, PluginCallbackLoad),
+                LoadCallback,
+                NULL,
+                &PluginLoadCallbackRegistration
+                );
+            PhRegisterCallback(
+                PhGetPluginCallback(PluginInstance, PluginCallbackUnload),
+                UnloadCallback,
+                NULL,
+                &PluginUnloadCallbackRegistration
+                );
+            PhRegisterCallback(
+                PhGetPluginCallback(PluginInstance, PluginCallbackShowOptions),
+                ShowOptionsCallback,
+                NULL,
+                &PluginShowOptionsCallbackRegistration
+                );
+            //PhRegisterCallback(
+            //    PhGetPluginCallback(PluginInstance, PluginCallbackMenuItem),
+            //    MenuItemCallback,
+            //    NULL,
+            //    &PluginMenuItemCallbackRegistration
+            //    );
+            PhRegisterCallback(
+                PhGetPluginCallback(PluginInstance, PluginCallbackTreeNewMessage),
+                TreeNewMessageCallback,
+                NULL,
+                &PluginTreeNewMessageCallbackRegistration
+                );
+            PhRegisterCallback(
+                PhGetPluginCallback(PluginInstance, PluginCallbackPhSvcRequest),
+                PhSvcRequestCallback,
+                NULL,
+                &PluginPhSvcRequestCallbackRegistration
+                );
+
+            //PhRegisterCallback(
+            //    PhGetGeneralCallback(GeneralCallbackMainWindowShowing),
+            //    MainWindowShowingCallback,
+            //    NULL,
+            //    &MainWindowShowingCallbackRegistration
+            //    );
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackProcessPropertiesInitializing),
+                ProcessPropertiesInitializingCallback,
+                NULL,
+                &ProcessPropertiesInitializingCallbackRegistration
+                );
+            //PhRegisterCallback(
+            //    PhGetGeneralCallback(GeneralCallbackProcessMenuInitializing),
+            //    ProcessMenuInitializingCallback,
+            //    NULL,
+            //    &ProcessMenuInitializingCallbackRegistration
+            //    );
+            //PhRegisterCallback(
+            //    PhGetGeneralCallback(GeneralCallbackThreadMenuInitializing),
+            //    ThreadMenuInitializingCallback,
+            //    NULL,
+            //    &ThreadMenuInitializingCallbackRegistration
+            //    );
+            //PhRegisterCallback(
+            //    PhGetGeneralCallback(GeneralCallbackModuleMenuInitializing),
+            //    ModuleMenuInitializingCallback,
+            //    NULL,
+            //    &ModuleMenuInitializingCallbackRegistration
+            //    );
+            //PhRegisterCallback(
+            //    PhGetGeneralCallback(GeneralCallbackProcessTreeNewInitializing),
+            //    ProcessTreeNewInitializingCallback,
+            //    NULL,
+            //    &ProcessTreeNewInitializingCallbackRegistration
+            //    );
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackThreadTreeNewInitializing),
+                ThreadTreeNewInitializingCallback,
+                NULL,
+                &ThreadTreeNewInitializingCallbackRegistration
+                );
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackThreadTreeNewUninitializing),
+                ThreadTreeNewUninitializingCallback,
+                NULL,
+                &ThreadTreeNewUninitializingCallbackRegistration
+                );
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackThreadStackControl),
+                ThreadStackControlCallback,
+                NULL,
+                &ThreadStackControlCallbackRegistration
+                );
+
+            PhPluginSetObjectExtension(
+                PluginInstance,
+                EmThreadItemType,
+                sizeof(DN_THREAD_ITEM),
+                ThreadItemCreateCallback,
+                ThreadItemDeleteCallback
+                );
+            InitializeTreeNewObjectExtensions();
+
+            PhAddSettings(settings, ARRAYSIZE(settings));
+        }
+        break;
+    }
+
+    return TRUE;
 }

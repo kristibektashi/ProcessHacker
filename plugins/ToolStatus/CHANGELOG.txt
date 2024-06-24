@@ -1,3 +1,20 @@
+2.4
+ * Added 32x32 icons for high DPI displays
+ * Fixed status bar crash
+
+2.3
+ * Added Auto-hide main menu
+ * Added CPU, Memory and IO graphs to main window
+ * Added Right-click menu on the Toolbar
+ * Added Toolbar customize dialog
+ * Added Statusbar customize dialog
+
+2.2
+ * Added Modern Toolbar theme
+ * Added portable Toolbar customization
+ * Added Toolbar power menu (ported from PH1.x)
+ * Fixed Toolbar DPI scaling issues
+
 2.1
  * Fixed Auto-hide Searchbox (Ctrl+K to show)
 

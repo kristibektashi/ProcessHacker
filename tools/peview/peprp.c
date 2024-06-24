@@ -21,9 +21,13 @@
  */
 
 #include <peview.h>
+#include <workqueue.h>
+#include <mapimg.h>
 #include <cpysave.h>
 #include <verify.h>
 #include <shlobj.h>
+#include <uxtheme.h>
+#include <shellapi.h>
 
 #define PVM_CHECKSUM_DONE (WM_APP + 1)
 #define PVM_VERIFY_DONE (WM_APP + 2)
@@ -332,7 +336,7 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
                 PhDereferenceObject(string);
                 SetDlgItemText(hwndDlg, IDC_VERSION, PvpGetStringOrNa(PvImageVersionInfo.FileVersion));
 
-                PhQueueItemGlobalWorkQueue(VerifyImageThreadStart, hwndDlg);
+                PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), VerifyImageThreadStart, hwndDlg);
             }
 
             // PE properties
@@ -386,7 +390,7 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
             SetDlgItemText(hwndDlg, IDC_CHECKSUM, string->Buffer);
             PhDereferenceObject(string);
 
-            PhQueueItemGlobalWorkQueue(CheckSumImageThreadStart, hwndDlg);
+            PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), CheckSumImageThreadStart, hwndDlg);
 
             switch (PvMappedImage.NtHeaders->OptionalHeader.Subsystem)
             {
@@ -505,10 +509,10 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
                 {
                     lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, sectionName, NULL);
 
-                    PhPrintPointer(pointer, (PVOID)PvMappedImage.Sections[i].VirtualAddress);
+                    PhPrintPointer(pointer, UlongToPtr(PvMappedImage.Sections[i].VirtualAddress));
                     PhSetListViewSubItem(lvHandle, lvItemIndex, 1, pointer);
 
-                    PhPrintPointer(pointer, (PVOID)PvMappedImage.Sections[i].SizeOfRawData);
+                    PhPrintPointer(pointer, UlongToPtr(PvMappedImage.Sections[i].SizeOfRawData));
                     PhSetListViewSubItem(lvHandle, lvItemIndex, 2, pointer);
                 }
             }
@@ -692,6 +696,8 @@ INT_PTR CALLBACK PvpPeImportsDlgProc(
             }
 
             ExtendedListView_SortItems(lvHandle);
+
+            EnableThemeDialogTexture(hwndDlg, ETDT_ENABLETAB);
         }
         break;
     case WM_NOTIFY:
@@ -777,6 +783,8 @@ INT_PTR CALLBACK PvpPeExportsDlgProc(
             }
 
             ExtendedListView_SortItems(lvHandle);
+
+            EnableThemeDialogTexture(hwndDlg, ETDT_ENABLETAB);
         }
         break;
     case WM_NOTIFY:
@@ -870,6 +878,8 @@ INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
             }
 
             PhDeleteAutoPool(&autoPool);
+
+            EnableThemeDialogTexture(hwndDlg, ETDT_ENABLETAB);
         }
         break;
     case WM_NOTIFY:
@@ -909,6 +919,8 @@ INT_PTR CALLBACK PvpPeClrDlgProc(
                 PhAppendStringBuilder2(&stringBuilder, L"IL only, ");
             if (PvImageCor20Header->Flags & COMIMAGE_FLAGS_32BITREQUIRED)
                 PhAppendStringBuilder2(&stringBuilder, L"32-bit only, ");
+            if (PvImageCor20Header->Flags & COMIMAGE_FLAGS_32BITPREFERRED)
+                PhAppendStringBuilder2(&stringBuilder, L"32-bit preferred, ");
             if (PvImageCor20Header->Flags & COMIMAGE_FLAGS_IL_LIBRARY)
                 PhAppendStringBuilder2(&stringBuilder, L"IL library, ");
 

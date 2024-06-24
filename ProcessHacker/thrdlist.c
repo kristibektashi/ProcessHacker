@@ -21,13 +21,15 @@
  */
 
 #include <phapp.h>
+#include <thrdlist.h>
+#include <thrdprv.h>
 #include <settings.h>
 #include <extmgri.h>
 #include <phplug.h>
 #include <emenu.h>
 #include <procprpp.h>
 
-BOOLEAN PhpThreadNodeHashtableCompareFunction(
+BOOLEAN PhpThreadNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -73,7 +75,7 @@ VOID PhInitializeThreadList(
 
     Context->NodeHashtable = PhCreateHashtable(
         sizeof(PPH_THREAD_NODE),
-        PhpThreadNodeHashtableCompareFunction,
+        PhpThreadNodeHashtableEqualFunction,
         PhpThreadNodeHashtableHashFunction,
         100
         );
@@ -89,10 +91,10 @@ VOID PhInitializeThreadList(
     TreeNew_SetRedraw(hwnd, FALSE);
 
     // Default columns
-    PhAddTreeNewColumn(hwnd, PHTHTLC_TID, TRUE, L"TID", 50, PH_ALIGN_LEFT, 0, 0);
+    PhAddTreeNewColumn(hwnd, PHTHTLC_TID, TRUE, L"TID", 50, PH_ALIGN_RIGHT, 0, DT_RIGHT);
     PhAddTreeNewColumnEx(hwnd, PHTHTLC_CPU, TRUE, L"CPU", 45, PH_ALIGN_RIGHT, 1, DT_RIGHT, TRUE);
-    PhAddTreeNewColumnEx(hwnd, PHTHTLC_CYCLESDELTA, TRUE, L"Cycles Delta", 80, PH_ALIGN_RIGHT, 2, DT_RIGHT, TRUE);
-    PhAddTreeNewColumn(hwnd, PHTHTLC_STARTADDRESS, TRUE, L"Start Address", 180, PH_ALIGN_LEFT, 3, 0);
+    PhAddTreeNewColumnEx(hwnd, PHTHTLC_CYCLESDELTA, TRUE, L"Cycles delta", 80, PH_ALIGN_RIGHT, 2, DT_RIGHT, TRUE);
+    PhAddTreeNewColumn(hwnd, PHTHTLC_STARTADDRESS, TRUE, L"Start address", 180, PH_ALIGN_LEFT, 3, 0);
     PhAddTreeNewColumnEx(hwnd, PHTHTLC_PRIORITY, TRUE, L"Priority", 80, PH_ALIGN_LEFT, 4, 0, TRUE);
     PhAddTreeNewColumn(hwnd, PHTHTLC_SERVICE, FALSE, L"Service", 100, PH_ALIGN_LEFT, -1, 0);
 
@@ -118,7 +120,7 @@ VOID PhDeleteThreadList(
     PhDereferenceObject(Context->NodeList);
 }
 
-BOOLEAN PhpThreadNodeHashtableCompareFunction(
+BOOLEAN PhpThreadNodeHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -133,7 +135,7 @@ ULONG PhpThreadNodeHashtableHashFunction(
     _In_ PVOID Entry
     )
 {
-    return (ULONG)(*(PPH_THREAD_NODE *)Entry)->ThreadId / 4;
+    return HandleToUlong((*(PPH_THREAD_NODE *)Entry)->ThreadId) / 4;
 }
 
 VOID PhLoadSettingsThreadList(
@@ -149,7 +151,7 @@ VOID PhLoadSettingsThreadList(
     if (!Context->UseCycleTime)
     {
         column.Id = PHTHTLC_CYCLESDELTA;
-        column.Text = L"Context Switches Delta";
+        column.Text = L"Context switches delta";
         TreeNew_SetColumn(Context->TreeNewHandle, TN_COLUMN_TEXT, &column);
     }
 
@@ -401,7 +403,7 @@ END_SORT_FUNCTION
 
 BEGIN_SORT_FUNCTION(Priority)
 {
-    sortResult = intcmp(threadItem1->PriorityWin32, threadItem2->PriorityWin32);
+    sortResult = intcmp(threadItem1->BasePriorityIncrement, threadItem2->BasePriorityIncrement);
 }
 END_SORT_FUNCTION
 
@@ -552,7 +554,7 @@ BOOLEAN NTAPI PhpThreadTreeNewCallback(
                 getCellText->Text = PhGetStringRef(node->StartAddressText);
                 break;
             case PHTHTLC_PRIORITY:
-                PhMoveReference(&node->PriorityText, PhGetThreadPriorityWin32String(threadItem->PriorityWin32));
+                PhMoveReference(&node->PriorityText, PhGetBasePriorityIncrementString(threadItem->BasePriorityIncrement));
                 getCellText->Text = PhGetStringRef(node->PriorityText);
                 break;
             case PHTHTLC_SERVICE:
@@ -693,25 +695,21 @@ VOID PhGetSelectedThreadItems(
     _Out_ PULONG NumberOfThreads
     )
 {
-    PPH_LIST list;
+    PH_ARRAY array;
     ULONG i;
 
-    list = PhCreateList(2);
+    PhInitializeArray(&array, sizeof(PVOID), 2);
 
     for (i = 0; i < Context->NodeList->Count; i++)
     {
         PPH_THREAD_NODE node = Context->NodeList->Items[i];
 
         if (node->Node.Selected)
-        {
-            PhAddItemList(list, node->ThreadItem);
-        }
+            PhAddItemArray(&array, &node->ThreadItem);
     }
 
-    *Threads = PhAllocateCopy(list->Items, sizeof(PVOID) * list->Count);
-    *NumberOfThreads = list->Count;
-
-    PhDereferenceObject(list);
+    *NumberOfThreads = (ULONG)array.Count;
+    *Threads = PhFinalArrayItems(&array);
 }
 
 VOID PhDeselectAllThreadNodes(

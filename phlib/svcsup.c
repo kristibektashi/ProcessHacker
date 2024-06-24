@@ -21,38 +21,43 @@
  */
 
 #include <ph.h>
-#include <winmisc.h>
+#include <svcsup.h>
+#include <subprocesstag.h>
 
 #define SIP(String, Integer) { (String), (PVOID)(Integer) }
 
 static PH_KEY_VALUE_PAIR PhpServiceStatePairs[] =
 {
     SIP(L"Stopped", SERVICE_STOPPED),
-    SIP(L"Start Pending", SERVICE_START_PENDING),
-    SIP(L"Stop Pending", SERVICE_STOP_PENDING),
+    SIP(L"Start pending", SERVICE_START_PENDING),
+    SIP(L"Stop pending", SERVICE_STOP_PENDING),
     SIP(L"Running", SERVICE_RUNNING),
-    SIP(L"Continue Pending", SERVICE_CONTINUE_PENDING),
-    SIP(L"Pause Pending", SERVICE_PAUSE_PENDING),
+    SIP(L"Continue pending", SERVICE_CONTINUE_PENDING),
+    SIP(L"Pause pending", SERVICE_PAUSE_PENDING),
     SIP(L"Paused", SERVICE_PAUSED)
 };
 
 static PH_KEY_VALUE_PAIR PhpServiceTypePairs[] =
 {
     SIP(L"Driver", SERVICE_KERNEL_DRIVER),
-    SIP(L"FS Driver", SERVICE_FILE_SYSTEM_DRIVER),
-    SIP(L"Own Process", SERVICE_WIN32_OWN_PROCESS),
-    SIP(L"Share Process", SERVICE_WIN32_SHARE_PROCESS),
-    SIP(L"Own Interactive Process", SERVICE_WIN32_OWN_PROCESS | SERVICE_INTERACTIVE_PROCESS),
-    SIP(L"Share Interactive Process", SERVICE_WIN32_SHARE_PROCESS | SERVICE_INTERACTIVE_PROCESS)
+    SIP(L"FS driver", SERVICE_FILE_SYSTEM_DRIVER),
+    SIP(L"Own process", SERVICE_WIN32_OWN_PROCESS),
+    SIP(L"Share process", SERVICE_WIN32_SHARE_PROCESS),
+    SIP(L"Own interactive process", SERVICE_WIN32_OWN_PROCESS | SERVICE_INTERACTIVE_PROCESS),
+    SIP(L"Share interactive process", SERVICE_WIN32_SHARE_PROCESS | SERVICE_INTERACTIVE_PROCESS),
+    SIP(L"User own process", SERVICE_USER_OWN_PROCESS),
+    SIP(L"User own process (instance)", SERVICE_USER_OWN_PROCESS | SERVICE_USERSERVICE_INSTANCE),
+    SIP(L"User share process", SERVICE_USER_SHARE_PROCESS),
+    SIP(L"User share process (instance)", SERVICE_USER_SHARE_PROCESS | SERVICE_USERSERVICE_INSTANCE),
 };
 
 static PH_KEY_VALUE_PAIR PhpServiceStartTypePairs[] =
 {
     SIP(L"Disabled", SERVICE_DISABLED),
-    SIP(L"Boot Start", SERVICE_BOOT_START),
-    SIP(L"System Start", SERVICE_SYSTEM_START),
-    SIP(L"Auto Start", SERVICE_AUTO_START),
-    SIP(L"Demand Start", SERVICE_DEMAND_START)
+    SIP(L"Boot start", SERVICE_BOOT_START),
+    SIP(L"System start", SERVICE_SYSTEM_START),
+    SIP(L"Auto start", SERVICE_AUTO_START),
+    SIP(L"Demand start", SERVICE_DEMAND_START)
 };
 
 static PH_KEY_VALUE_PAIR PhpServiceErrorControlPairs[] =
@@ -63,10 +68,11 @@ static PH_KEY_VALUE_PAIR PhpServiceErrorControlPairs[] =
     SIP(L"Critical", SERVICE_ERROR_CRITICAL)
 };
 
-WCHAR *PhServiceTypeStrings[6] = { L"Driver", L"FS Driver", L"Own Process", L"Share Process",
-    L"Own Interactive Process", L"Share Interactive Process" };
-WCHAR *PhServiceStartTypeStrings[5] = { L"Disabled", L"Boot Start", L"System Start",
-    L"Auto Start", L"Demand Start" };
+WCHAR *PhServiceTypeStrings[10] = { L"Driver", L"FS driver", L"Own process", L"Share process",
+    L"Own interactive process", L"Share interactive process", L"User own process", L"User own process (instance)",
+    L"User share process", L"User share process (instance)" };
+WCHAR *PhServiceStartTypeStrings[5] = { L"Disabled", L"Boot start", L"System start",
+    L"Auto start", L"Demand start" };
 WCHAR *PhServiceErrorControlStrings[4] = { L"Ignore", L"Normal", L"Severe", L"Critical" };
 
 PVOID PhEnumServices(
@@ -84,7 +90,7 @@ PVOID PhEnumServices(
     ULONG servicesReturned;
 
     if (!Type)
-        Type = SERVICE_DRIVER | SERVICE_WIN32;
+        Type = WindowsVersion >= WINDOWS_10 ? SERVICE_TYPE_ALL : (SERVICE_DRIVER | SERVICE_WIN32);
     if (!State)
         State = SERVICE_STATE_ALL;
 
@@ -419,8 +425,8 @@ PPH_STRING PhGetServiceNameFromTag(
     }
 
     memset(&nameFromTag, 0, sizeof(TAG_INFO_NAME_FROM_TAG));
-    nameFromTag.InParams.dwPid = (ULONG)ProcessId;
-    nameFromTag.InParams.dwTag = (ULONG)ServiceTag;
+    nameFromTag.InParams.dwPid = HandleToUlong(ProcessId);
+    nameFromTag.InParams.dwTag = PtrToUlong(ServiceTag);
 
     I_QueryTagInformation(NULL, eTagInfoLevelNameFromTag, &nameFromTag);
 
@@ -449,16 +455,16 @@ NTSTATUS PhGetThreadServiceTag(
     if (!ProcessHandle)
     {
         if (!NT_SUCCESS(status = PhOpenThreadProcess(
-            &ProcessHandle,
+            ThreadHandle,
             PROCESS_VM_READ,
-            ThreadHandle
+            &ProcessHandle
             )))
             return status;
 
         openedProcessHandle = TRUE;
     }
 
-    status = PhReadVirtualMemory(
+    status = NtReadVirtualMemory(
         ProcessHandle,
         PTR_ADD_OFFSET(basicInfo.TebBaseAddress, FIELD_OFFSET(TEB, SubProcessTag)),
         ServiceTag,

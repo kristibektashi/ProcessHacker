@@ -20,10 +20,7 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phdk.h>
-#include <windowsx.h>
 #include "extsrv.h"
-#include "resource.h"
 
 typedef struct _SERVICE_LIST_CONTEXT
 {
@@ -86,7 +83,7 @@ LPENUM_SERVICE_STATUS EsEnumDependentServices(
     return buffer;
 }
 
-static VOID EspLayoutServiceListControl(
+VOID EspLayoutServiceListControl(
     _In_ HWND hwndDlg,
     _In_ HWND ServiceListHandle
     )
@@ -161,7 +158,7 @@ INT_PTR CALLBACK EspServiceDependenciesDlgProc(
                     PPH_SERVICE_ITEM dependencyService;
 
                     dependency = serviceConfig->lpDependencies;
-                    serviceList = PhCreateList(8);
+                    serviceList = PH_AUTO(PhCreateList(8));
                     success = TRUE;
 
                     if (dependency)
@@ -193,7 +190,6 @@ ContinueLoop:
                     EspLayoutServiceListControl(hwndDlg, serviceListHandle);
                     ShowWindow(serviceListHandle, SW_SHOW);
 
-                    PhDereferenceObject(serviceList);
                     PhFree(serviceConfig);
                 }
                 else
@@ -211,7 +207,7 @@ ContinueLoop:
             if (!success)
             {
                 SetDlgItemText(hwndDlg, IDC_SERVICES_LAYOUT, PhaConcatStrings2(L"Unable to enumerate dependencies: ",
-                    ((PPH_STRING)PhAutoDereferenceObject(PhGetWin32Message(win32Result)))->Buffer)->Buffer);
+                    ((PPH_STRING)PH_AUTO(PhGetWin32Message(win32Result)))->Buffer)->Buffer);
                 ShowWindow(GetDlgItem(hwndDlg, IDC_SERVICES_LAYOUT), SW_SHOW);
             }
         }
@@ -290,7 +286,7 @@ INT_PTR CALLBACK EspServiceDependentsDlgProc(
                     ULONG i;
                     PPH_SERVICE_ITEM dependentService;
 
-                    serviceList = PhCreateList(8);
+                    serviceList = PH_AUTO(PhCreateList(8));
                     success = TRUE;
 
                     for (i = 0; i < numberOfDependentServices; i++)
@@ -306,7 +302,6 @@ INT_PTR CALLBACK EspServiceDependentsDlgProc(
                     EspLayoutServiceListControl(hwndDlg, serviceListHandle);
                     ShowWindow(serviceListHandle, SW_SHOW);
 
-                    PhDereferenceObject(serviceList);
                     PhFree(dependentServices);
                 }
                 else
@@ -324,7 +319,7 @@ INT_PTR CALLBACK EspServiceDependentsDlgProc(
             if (!success)
             {
                 SetDlgItemText(hwndDlg, IDC_SERVICES_LAYOUT, PhaConcatStrings2(L"Unable to enumerate dependents: ",
-                    ((PPH_STRING)PhAutoDereferenceObject(PhGetWin32Message(win32Result)))->Buffer)->Buffer);
+                    ((PPH_STRING)PH_AUTO(PhGetWin32Message(win32Result)))->Buffer)->Buffer);
                 ShowWindow(GetDlgItem(hwndDlg, IDC_SERVICES_LAYOUT), SW_SHOW);
             }
         }

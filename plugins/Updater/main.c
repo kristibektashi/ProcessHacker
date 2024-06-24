@@ -28,7 +28,7 @@ static PH_CALLBACK_REGISTRATION MainMenuInitializingCallbackRegistration;
 static PH_CALLBACK_REGISTRATION MainWindowShowingCallbackRegistration;
 static PH_CALLBACK_REGISTRATION PluginShowOptionsCallbackRegistration;
 
-static VOID NTAPI MainWindowShowingCallback(
+VOID NTAPI MainWindowShowingCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -41,7 +41,7 @@ static VOID NTAPI MainWindowShowingCallback(
     }
 }
 
-static VOID NTAPI MainMenuInitializingCallback(
+VOID NTAPI MainMenuInitializingCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -49,26 +49,26 @@ static VOID NTAPI MainMenuInitializingCallback(
     PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
 
     // Check this menu is the Help menu
-    if (menuInfo->u.MainMenu.SubMenuIndex != 4)
+    if (!menuInfo || menuInfo->u.MainMenu.SubMenuIndex != 4)
         return;
 
-    PhInsertEMenuItem(menuInfo->Menu, PhPluginCreateEMenuItem(PluginInstance, 0, UPDATE_MENUITEM, L"Check for Updates", NULL), 0);
+    PhInsertEMenuItem(menuInfo->Menu, PhPluginCreateEMenuItem(PluginInstance, 0, UPDATE_MENUITEM, L"Check for updates", NULL), 0);
 }
 
-static VOID NTAPI MenuItemCallback(
+VOID NTAPI MenuItemCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
 {
     PPH_PLUGIN_MENU_ITEM menuItem = Parameter;
 
-    if (menuItem->Id == UPDATE_MENUITEM)
+    if (menuItem && menuItem->Id == UPDATE_MENUITEM)
     {
         ShowUpdateDialog(NULL);
     }
 }
 
-static VOID NTAPI ShowOptionsCallback(
+VOID NTAPI ShowOptionsCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -131,6 +131,7 @@ LOGICAL DllMain(
             PH_SETTING_CREATE settings[] =
             {
                 { IntegerSettingType, SETTING_NAME_AUTO_CHECK, L"1" },
+                { StringSettingType, SETTING_NAME_LAST_CHECK, L"0" }
             };
 
             PluginInstance = PhRegisterPlugin(PLUGIN_NAME, Instance, &info);
@@ -141,7 +142,7 @@ LOGICAL DllMain(
             info->DisplayName = L"Update Checker";
             info->Author = L"dmex";
             info->Description = L"Plugin for checking new Process Hacker releases via the Help menu.";
-            info->Url = L"http://processhacker.sf.net/forums/viewtopic.php?t=1121";
+            info->Url = L"https://wj32.org/processhacker/forums/viewtopic.php?t=1121";
             info->HasOptions = TRUE;
 
             PhRegisterCallback(
@@ -169,7 +170,7 @@ LOGICAL DllMain(
                 &PluginShowOptionsCallbackRegistration
                 );
                
-            PhAddSettings(settings, _countof(settings));
+            PhAddSettings(settings, ARRAYSIZE(settings));
         }
         break;
     }

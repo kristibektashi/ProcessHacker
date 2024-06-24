@@ -22,6 +22,10 @@
  */
 
 #include <phapp.h>
+#include <netprv.h>
+#include <procprv.h>
+#include <workqueue.h>
+#include <svcsup.h>
 #include <ws2tcpip.h>
 #include <ws2ipdef.h>
 #include <iphlpapi.h>
@@ -100,7 +104,7 @@ VOID NTAPI PhpNetworkItemDeleteProcedure(
     _In_ ULONG Flags
     );
 
-BOOLEAN PhpNetworkHashtableCompareFunction(
+BOOLEAN PhpNetworkHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -109,7 +113,7 @@ ULONG NTAPI PhpNetworkHashtableHashFunction(
     _In_ PVOID Entry
     );
 
-BOOLEAN PhpResolveCacheHashtableCompareFunction(
+BOOLEAN PhpResolveCacheHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     );
@@ -157,7 +161,7 @@ BOOLEAN PhNetworkProviderInitialization(
     PhNetworkItemType = PhCreateObjectType(L"NetworkItem", 0, PhpNetworkItemDeleteProcedure);
     PhNetworkHashtable = PhCreateHashtable(
         sizeof(PPH_NETWORK_ITEM),
-        PhpNetworkHashtableCompareFunction,
+        PhpNetworkHashtableEqualFunction,
         PhpNetworkHashtableHashFunction,
         40
         );
@@ -166,7 +170,7 @@ BOOLEAN PhNetworkProviderInitialization(
 
     PhpResolveCacheHashtable = PhCreateHashtable(
         sizeof(PHP_RESOLVE_CACHE_ITEM),
-        PhpResolveCacheHashtableCompareFunction,
+        PhpResolveCacheHashtableEqualFunction,
         PhpResolveCacheHashtableHashFunction,
         20
         );
@@ -209,7 +213,7 @@ VOID NTAPI PhpNetworkItemDeleteProcedure(
         PhDereferenceObject(networkItem->RemoteHostString);
 }
 
-BOOLEAN PhpNetworkHashtableCompareFunction(
+BOOLEAN PhpNetworkHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -234,7 +238,7 @@ ULONG NTAPI PhpNetworkHashtableHashFunction(
         networkItem->ProtocolType ^
         PhHashIpEndpoint(&networkItem->LocalEndpoint) ^
         PhHashIpEndpoint(&networkItem->RemoteEndpoint) ^
-        (ULONG)networkItem->ProcessId;
+        HandleToUlong(networkItem->ProcessId);
 }
 
 PPH_NETWORK_ITEM PhReferenceNetworkItem(
@@ -284,7 +288,7 @@ VOID PhpRemoveNetworkItem(
     PhDereferenceObject(NetworkItem);
 }
 
-BOOLEAN PhpResolveCacheHashtableCompareFunction(
+BOOLEAN PhpResolveCacheHashtableEqualFunction(
     _In_ PVOID Entry1,
     _In_ PVOID Entry2
     )
@@ -497,7 +501,7 @@ VOID PhpUpdateNetworkItemOwner(
         PPH_STRING serviceName;
 
         // May change in the future...
-        serviceTag = (PVOID)*(PULONG)NetworkItem->OwnerInfo;
+        serviceTag = UlongToPtr(*(PULONG)NetworkItem->OwnerInfo);
         serviceName = PhGetServiceNameFromTag(NetworkItem->ProcessId, serviceTag);
 
         if (serviceName)
@@ -816,23 +820,23 @@ PWSTR PhGetTcpStateName(
     case MIB_TCP_STATE_LISTEN:
         return L"Listen";
     case MIB_TCP_STATE_SYN_SENT:
-        return L"SYN Sent";
+        return L"SYN sent";
     case MIB_TCP_STATE_SYN_RCVD:
-        return L"SYN Received";
+        return L"SYN received";
     case MIB_TCP_STATE_ESTAB:
         return L"Established";
     case MIB_TCP_STATE_FIN_WAIT1:
-        return L"FIN Wait 1";
+        return L"FIN wait 1";
     case MIB_TCP_STATE_FIN_WAIT2:
-        return L"FIN Wait 2";
+        return L"FIN wait 2";
     case MIB_TCP_STATE_CLOSE_WAIT:
-        return L"Close Wait";
+        return L"Close wait";
     case MIB_TCP_STATE_CLOSING:
         return L"Closing";
     case MIB_TCP_STATE_LAST_ACK:
         return L"Last ACK";
     case MIB_TCP_STATE_TIME_WAIT:
-        return L"Time Wait";
+        return L"Time wait";
     case MIB_TCP_STATE_DELETE_TCB:
         return L"Delete TCB";
     default:
@@ -888,7 +892,7 @@ BOOLEAN PhGetNetworkConnections(
     // However, the function calculated it as:
     // = FIELD_OFFSET(MIB_TCP6TABLE_OWNER_MODULE, table) + sizeof(MIB_TCP6ROW_OWNER_PID) * (number of entries)
     // A workaround is implemented below.
-    if (WindowsVersion <= WINDOWS_XP && tableSize >= FIELD_OFFSET(MIB_TCP6TABLE_OWNER_MODULE, table)) // make sure we don't wrap around
+    if (WindowsVersion <= WINDOWS_XP && tableSize >= (ULONG)FIELD_OFFSET(MIB_TCP6TABLE_OWNER_MODULE, table)) // make sure we don't wrap around
     {
         tableSize = FIELD_OFFSET(MIB_TCP6TABLE_OWNER_MODULE, table) +
             (tableSize - FIELD_OFFSET(MIB_TCP6TABLE_OWNER_MODULE, table)) / sizeof(MIB_TCP6ROW_OWNER_PID) * sizeof(MIB_TCP6ROW_OWNER_MODULE);
@@ -959,7 +963,7 @@ BOOLEAN PhGetNetworkConnections(
             connections[index].RemoteEndpoint.Port = _byteswap_ushort((USHORT)tcp4Table->table[i].dwRemotePort);
 
             connections[index].State = tcp4Table->table[i].dwState;
-            connections[index].ProcessId = (HANDLE)tcp4Table->table[i].dwOwningPid;
+            connections[index].ProcessId = UlongToHandle(tcp4Table->table[i].dwOwningPid);
             connections[index].CreateTime = tcp4Table->table[i].liCreateTimestamp;
             memcpy(
                 connections[index].OwnerInfo,
@@ -988,7 +992,7 @@ BOOLEAN PhGetNetworkConnections(
             connections[index].RemoteEndpoint.Port = _byteswap_ushort((USHORT)tcp6Table->table[i].dwRemotePort);
 
             connections[index].State = tcp6Table->table[i].dwState;
-            connections[index].ProcessId = (HANDLE)tcp6Table->table[i].dwOwningPid;
+            connections[index].ProcessId = UlongToHandle(tcp6Table->table[i].dwOwningPid);
             connections[index].CreateTime = tcp6Table->table[i].liCreateTimestamp;
             memcpy(
                 connections[index].OwnerInfo,
@@ -1015,7 +1019,7 @@ BOOLEAN PhGetNetworkConnections(
             connections[index].RemoteEndpoint.Address.Type = 0;
 
             connections[index].State = 0;
-            connections[index].ProcessId = (HANDLE)udp4Table->table[i].dwOwningPid;
+            connections[index].ProcessId = UlongToHandle(udp4Table->table[i].dwOwningPid);
             connections[index].CreateTime = udp4Table->table[i].liCreateTimestamp;
             memcpy(
                 connections[index].OwnerInfo,
@@ -1042,7 +1046,7 @@ BOOLEAN PhGetNetworkConnections(
             connections[index].RemoteEndpoint.Address.Type = 0;
 
             connections[index].State = 0;
-            connections[index].ProcessId = (HANDLE)udp6Table->table[i].dwOwningPid;
+            connections[index].ProcessId = UlongToHandle(udp6Table->table[i].dwOwningPid);
             connections[index].CreateTime = udp6Table->table[i].liCreateTimestamp;
             memcpy(
                 connections[index].OwnerInfo,

@@ -2,7 +2,7 @@
  * Process Hacker -
  *   graph control
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -20,9 +20,10 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define _PH_GRAPH_PRIVATE
-#include <phgui.h>
+#include <ph.h>
+#include <guisup.h>
 #include <graph.h>
+#include <math.h>
 
 #define COLORREF_TO_BITS(Color) (_byteswap_ulong(Color) >> 8)
 
@@ -87,275 +88,6 @@ BOOLEAN PhGraphControlInitialization(
     return TRUE;
 }
 
-/**
- * Draws a graph.
- *
- * \param hdc The DC to draw to.
- * \param DrawInfo A structure which contains graphing information.
- *
- * \remarks This function is extremely slow. Use PhDrawGraphDirect()
- * whenever possible.
- */
-VOID PhDrawGraph(
-    _In_ HDC hdc,
-    _In_ PPH_GRAPH_DRAW_INFO DrawInfo
-    )
-{
-    ULONG width;
-    ULONG height;
-    ULONG height1;
-    ULONG flags;
-    LONG step;
-    RECT rect;
-    POINT points[4];
-    HPEN nullPen;
-    HPEN dcPen;
-    HBRUSH dcBrush;
-    PPH_LIST lineList1 = NULL;
-    PPH_LIST lineList2 = NULL;
-
-    width = DrawInfo->Width;
-    height = DrawInfo->Height;
-    height1 = DrawInfo->Height - 1;
-    flags = DrawInfo->Flags;
-    step = DrawInfo->Step;
-
-    nullPen = GetStockObject(NULL_PEN);
-    dcPen = GetStockObject(DC_PEN);
-    dcBrush = GetStockObject(DC_BRUSH);
-
-    // Fill in the background.
-    rect.left = 0;
-    rect.top = 0;
-    rect.right = width;
-    rect.bottom = height;
-    SetDCBrushColor(hdc, DrawInfo->BackColor);
-    FillRect(hdc, &rect, dcBrush);
-
-    // Draw the data (this section only fills in the background).
-
-    if (DrawInfo->LineData1 && DrawInfo->LineDataCount >= 2)
-    {
-        LONG x = width - step;
-        ULONG index = 0;
-        BOOLEAN willBreak = FALSE;
-
-        SelectObject(hdc, dcBrush);
-        SelectObject(hdc, nullPen);
-
-        lineList1 = PhCreateList(DrawInfo->LineDataCount);
-
-        if (DrawInfo->LineData2)
-            lineList2 = PhCreateList(DrawInfo->LineDataCount);
-
-        while (index < DrawInfo->LineDataCount - 1)
-        {
-            FLOAT f0; // 0..1
-            FLOAT f1;
-            ULONG h0; // height..0
-            ULONG h1;
-
-            if (x < 0 || index == DrawInfo->LineDataCount - 2)
-                willBreak = TRUE;
-
-            // Draw line 1.
-
-            f0 = DrawInfo->LineData1[index];
-            f1 = DrawInfo->LineData1[index + 1];
-            h0 = (ULONG)((1 - f0) * height);
-            h1 = (ULONG)((1 - f1) * height);
-
-            // top-left, top-right, bottom-right, bottom-left
-            points[0].x = x;
-            points[0].y = h1;
-            points[1].x = x + step;
-            points[1].y = h0;
-            points[2].x = x + step;
-            points[2].y = height;
-            points[3].x = x;
-            points[3].y = height;
-
-            // Fill in the area below the line.
-            SetDCBrushColor(hdc, DrawInfo->LineBackColor1);
-            Polygon(hdc, points, 4);
-
-            // Add the line height values to the list for drawing later.
-            if (h0 > height1) h0 = height1;
-            if (h1 > height1) h1 = height1;
-            PhAddItemList(lineList1, (PVOID)h0);
-            if (willBreak) PhAddItemList(lineList1, (PVOID)h1);
-
-            // Draw line 2 (either stacked or overlayed).
-            if (DrawInfo->LineData2 && (flags & PH_GRAPH_USE_LINE_2))
-            {
-                if (flags & PH_GRAPH_OVERLAY_LINE_2)
-                {
-                    f0 = DrawInfo->LineData2[index];
-                    f1 = DrawInfo->LineData2[index + 1];
-                }
-                else
-                {
-                    f0 += DrawInfo->LineData2[index];
-                    f1 += DrawInfo->LineData2[index + 1];
-
-                    if (f0 > 1) f0 = 1;
-                    if (f1 > 1) f1 = 1;
-                }
-
-                h0 = (ULONG)((1 - f0) * height);
-                h1 = (ULONG)((1 - f1) * height);
-
-                if (flags & PH_GRAPH_OVERLAY_LINE_2)
-                {
-                    points[0].y = h1;
-                    points[1].y = h0;
-                }
-                else
-                {
-                    // Fix the bottom points so we don't fill in the line 1 area.
-                    points[2].y = points[1].y; // p2.y = h0(line1)
-                    points[3].y = points[0].y; // p3.y = h1(line1)
-                    points[0].y = h1;
-                    points[1].y = h0;
-                }
-
-                SetDCBrushColor(hdc, DrawInfo->LineBackColor2);
-                Polygon(hdc, points, 4);
-
-                if (h0 > height1) h0 = height1;
-                if (h1 > height1) h1 = height1;
-                PhAddItemList(lineList2, (PVOID)h0);
-                if (willBreak) PhAddItemList(lineList2, (PVOID)h1);
-            }
-
-            if (x < 0)
-                break;
-
-            x -= step;
-            index++;
-        }
-    }
-
-    // Draw the grid.
-    if (flags & PH_GRAPH_USE_GRID)
-    {
-        ULONG x = width / DrawInfo->GridWidth;
-        ULONG y = height / DrawInfo->GridHeight;
-        ULONG i;
-        ULONG pos;
-        ULONG gridStart;
-
-        SetDCPenColor(hdc, DrawInfo->GridColor);
-        SelectObject(hdc, dcPen);
-
-        // Draw the vertical lines.
-
-        points[0].y = 0;
-        points[1].y = height;
-        gridStart = (DrawInfo->GridStart * DrawInfo->Step) % DrawInfo->GridWidth;
-
-        for (i = 0; i <= x; i++)
-        {
-            pos = width - (i * DrawInfo->GridWidth + gridStart) - 1;
-            points[0].x = pos;
-            points[1].x = pos;
-            Polyline(hdc, points, 2);
-        }
-
-        // Draw the horizontal lines.
-
-        points[0].x = 0;
-        points[1].x = width;
-
-        for (i = 0; i <= y; i++)
-        {
-            pos = i * DrawInfo->GridHeight - 1;
-            points[0].y = pos;
-            points[1].y = pos;
-            Polyline(hdc, points, 2);
-        }
-    }
-
-    // Draw the data (this section draws the lines).
-    // This is done to get a clearer graph.
-    if (lineList1)
-    {
-        LONG x = width - step;
-        ULONG index;
-        ULONG previousHeight1;
-        ULONG previousHeight2;
-
-        previousHeight1 = (ULONG)lineList1->Items[0];
-        index = 1;
-
-        if (lineList2)
-            previousHeight2 = (ULONG)lineList2->Items[0];
-
-        while (index < lineList1->Count)
-        {
-            points[0].x = x;
-            points[1].x = x + step;
-
-            // Draw line 2 first so it doesn't draw over line 1.
-            if (lineList2)
-            {
-                points[0].y = (ULONG)lineList2->Items[index];
-                points[1].y = previousHeight2;
-
-                SelectObject(hdc, dcPen);
-                SetDCPenColor(hdc, DrawInfo->LineColor2);
-                Polyline(hdc, points, 2);
-
-                previousHeight2 = points[0].y;
-
-                points[0].y = (ULONG)lineList1->Items[index];
-                points[1].y = previousHeight1;
-
-                SelectObject(hdc, dcPen);
-                SetDCPenColor(hdc, DrawInfo->LineColor1);
-                Polyline(hdc, points, 2);
-
-                previousHeight1 = points[0].y;
-            }
-            else
-            {
-                points[0].x = x;
-                points[0].y = (ULONG)lineList1->Items[index];
-                points[1].x = x + step;
-                points[1].y = previousHeight1;
-
-                SelectObject(hdc, dcPen);
-                SetDCPenColor(hdc, DrawInfo->LineColor1);
-                Polyline(hdc, points, 2);
-
-                previousHeight1 = points[0].y;
-            }
-
-            if (x < 0)
-                break;
-
-            x -= step;
-            index++;
-        }
-
-        PhDereferenceObject(lineList1);
-        if (lineList2) PhDereferenceObject(lineList2);
-    }
-
-    // Draw the text.
-    if (DrawInfo->Text.Buffer)
-    {
-        // Fill in the text box.
-        SetDCBrushColor(hdc, DrawInfo->TextBoxColor);
-        FillRect(hdc, &DrawInfo->TextBoxRect, GetStockObject(DC_BRUSH));
-
-        // Draw the text.
-        SetTextColor(hdc, DrawInfo->TextColor);
-        SetBkMode(hdc, TRANSPARENT);
-        DrawText(hdc, DrawInfo->Text.Buffer, (ULONG)DrawInfo->Text.Length / 2, &DrawInfo->TextRect, DT_NOCLIP);
-    }
-}
-
 FORCEINLINE VOID PhpGetGraphPoint(
     _In_ PPH_GRAPH_DRAW_INFO DrawInfo,
     _In_ ULONG Index,
@@ -388,6 +120,10 @@ FORCEINLINE VOID PhpGetGraphPoint(
 
             *H2 = (ULONG)(f2 * (DrawInfo->Height - 1));
         }
+        else
+        {
+            *H2 = *H1;
+        }
     }
     else
     {
@@ -407,8 +143,8 @@ FORCEINLINE VOID PhpGetGraphPoint(
  * \li The graph is fixed to the origin (0, 0).
  * \li The total size of the bitmap is assumed to be \a Width and \a Height in \a DrawInfo.
  * \li \a Step is fixed at 2.
- * \li If \ref PH_GRAPH_USE_LINE_2 is specified in \a Flags, \ref PH_GRAPH_OVERLAY_LINE_2
- * is never used.
+ * \li If \ref PH_GRAPH_USE_LINE_2 is specified in \a Flags, \ref PH_GRAPH_OVERLAY_LINE_2 is never
+ * used.
  */
 VOID PhDrawGraphDirect(
     _In_ HDC hdc,
@@ -416,16 +152,16 @@ VOID PhDrawGraphDirect(
     _In_ PPH_GRAPH_DRAW_INFO DrawInfo
     )
 {
-    PULONG bits;
-    LONG width;
-    LONG height;
-    LONG numberOfPixels;
-    ULONG flags;
+    PULONG bits = Bits;
+    LONG width = DrawInfo->Width;
+    LONG height = DrawInfo->Height;
+    LONG numberOfPixels = width * height;
+    ULONG flags = DrawInfo->Flags;
     LONG i;
     LONG x;
 
-    BOOLEAN intermediate; // whether we are currently between two data positions
-    ULONG dataIndex; // the data index of the current position
+    BOOLEAN intermediate = FALSE; // whether we are currently between two data positions
+    ULONG dataIndex = 0; // the data index of the current position
     ULONG h1_i; // the line 1 height value to the left of the current position
     ULONG h1_o; // the line 1 height value at the current position
     ULONG h2_i; // the line 1 + line 2 height value to the left of the current position
@@ -451,15 +187,16 @@ VOID PhDrawGraphDirect(
     ULONG lineBackColor1;
     ULONG lineColor2;
     ULONG lineBackColor2;
+    FLOAT gridHeight;
+    LONG gridYThreshold;
     ULONG gridYCounter;
-    ULONG gridXIncrement;
     ULONG gridColor;
+    FLOAT gridBase;
+    FLOAT gridLevel;
 
-    bits = Bits;
-    width = DrawInfo->Width;
-    height = DrawInfo->Height;
-    numberOfPixels = width * height;
-    flags = DrawInfo->Flags;
+    ULONG yLabelMax;
+    ULONG yLabelDataIndex;
+
     lineColor1 = COLORREF_TO_BITS(DrawInfo->LineColor1);
     lineBackColor1 = COLORREF_TO_BITS(DrawInfo->LineBackColor1);
     lineColor2 = COLORREF_TO_BITS(DrawInfo->LineColor2);
@@ -475,8 +212,6 @@ VOID PhDrawGraphDirect(
     }
 
     x = width - 1;
-    intermediate = FALSE;
-    dataIndex = 0;
     h1_low2 = MAXLONG;
     h1_high2 = 0;
     h2_low2 = MAXLONG;
@@ -484,11 +219,48 @@ VOID PhDrawGraphDirect(
 
     PhpGetGraphPoint(DrawInfo, 0, &h1_i, &h2_i);
 
-    if (flags & PH_GRAPH_USE_GRID)
+    if (flags & (PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y))
     {
-        gridYCounter = DrawInfo->GridWidth - (DrawInfo->GridStart * DrawInfo->Step) % DrawInfo->GridWidth - 1;
-        gridXIncrement = width * DrawInfo->GridHeight;
+        gridHeight = max(DrawInfo->GridHeight, 0);
+        gridLevel = gridHeight;
+        gridYThreshold = DrawInfo->GridYThreshold;
+        gridYCounter = DrawInfo->GridWidth - (DrawInfo->GridXOffset * DrawInfo->Step) % DrawInfo->GridWidth - 1;
         gridColor = COLORREF_TO_BITS(DrawInfo->GridColor);
+    }
+
+    if ((flags & (PH_GRAPH_USE_GRID_Y | PH_GRAPH_LOGARITHMIC_GRID_Y)) == (PH_GRAPH_USE_GRID_Y | PH_GRAPH_LOGARITHMIC_GRID_Y))
+    {
+        // Pre-process to find the largest integer n such that GridHeight*GridBase^n < 1.
+
+        gridBase = DrawInfo->GridBase;
+
+        if (gridBase > 1)
+        {
+            DOUBLE logBase;
+            DOUBLE exponent;
+            DOUBLE high;
+
+            logBase = log(gridBase);
+            exponent = ceil(-log(gridHeight) / logBase) - 1; // Works for both GridHeight > 1 and GridHeight < 1
+            high = exp(exponent * logBase);
+            gridLevel = (FLOAT)(gridHeight * high);
+
+            if (gridLevel < 0 || !isfinite(gridLevel))
+                gridLevel = 0;
+            if (gridLevel > 1)
+                gridLevel = 1;
+        }
+        else
+        {
+            // This is an error.
+            gridLevel = 0;
+        }
+    }
+
+    if (flags & PH_GRAPH_LABEL_MAX_Y)
+    {
+        yLabelMax = h2_i;
+        yLabelDataIndex = 0;
     }
 
     while (x >= 0)
@@ -508,6 +280,15 @@ VOID PhDrawGraphDirect(
             h1_left = (h1_i + h1_o) / 2;
             h2 = h2_o;
             h2_left = (h2_i + h2_o) / 2;
+
+            if ((flags & PH_GRAPH_LABEL_MAX_Y) && dataIndex < DrawInfo->LabelMaxYIndexLimit)
+            {
+                if (yLabelMax <= h2_i)
+                {
+                    yLabelMax = h2_i;
+                    yLabelDataIndex = dataIndex;
+                }
+            }
         }
         else
         {
@@ -552,8 +333,8 @@ VOID PhDrawGraphDirect(
         //    |                                              |
         //    | left of current pixel                        | left of current pixel
         //
-        // In both examples above, the line low2-high2 will be merged with the line low1-high1 of the next
-        // iteration.
+        // In both examples above, the line low2-high2 will be merged with the line low1-high1 of
+        // the next iteration.
 
         mid = ((h1_left + h1) / 2) * width;
         old_low2 = h1_low2;
@@ -633,7 +414,7 @@ VOID PhDrawGraphDirect(
 
         // Draw the grid.
 
-        if (flags & PH_GRAPH_USE_GRID)
+        if (flags & PH_GRAPH_USE_GRID_X)
         {
             // Draw the vertical grid line.
             if (gridYCounter == 0)
@@ -648,11 +429,54 @@ VOID PhDrawGraphDirect(
 
             if (gridYCounter == DrawInfo->GridWidth)
                 gridYCounter = 0;
+        }
+
+        if (flags & PH_GRAPH_USE_GRID_Y)
+        {
+            FLOAT level;
+            LONG h;
+            LONG h_last;
 
             // Draw the horizontal grid line.
-            for (i = x + gridXIncrement; i < numberOfPixels; i += gridXIncrement)
+            if (flags & PH_GRAPH_LOGARITHMIC_GRID_Y)
             {
-                bits[i] = gridColor;
+                level = gridLevel;
+                h = (LONG)(level * (height - 1));
+                h_last = height + gridYThreshold - 1;
+
+                while (TRUE)
+                {
+                    if (h <= h_last - gridYThreshold)
+                    {
+                        bits[x + h * width] = gridColor;
+                        h_last = h;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    level /= gridBase;
+                    h = (LONG)(level * (height - 1));
+                }
+            }
+            else
+            {
+                level = gridHeight;
+                h = (LONG)(level * (height - 1));
+                h_last = 0;
+
+                while (h < height - 1)
+                {
+                    if (h >= h_last + gridYThreshold)
+                    {
+                        bits[x + h * width] = gridColor;
+                        h_last = h;
+                    }
+
+                    level += gridHeight;
+                    h = (LONG)(level * (height - 1));
+                }
             }
         }
 
@@ -675,8 +499,57 @@ VOID PhDrawGraphDirect(
         x--;
     }
 
+    if ((flags & PH_GRAPH_LABEL_MAX_Y) && yLabelDataIndex < DrawInfo->LineDataCount)
+    {
+        FLOAT value;
+        PPH_STRING label;
+
+        value = DrawInfo->LineData1[yLabelDataIndex];
+
+        if (flags & PH_GRAPH_USE_LINE_2)
+            value += DrawInfo->LineData2[yLabelDataIndex];
+
+        if (label = DrawInfo->LabelYFunction(DrawInfo, yLabelDataIndex, value, DrawInfo->LabelYFunctionParameter))
+        {
+            HFONT oldFont = NULL;
+            SIZE textSize;
+            RECT rect;
+
+            if (DrawInfo->LabelYFont)
+                oldFont = SelectObject(hdc, DrawInfo->LabelYFont);
+
+            SetTextColor(hdc, DrawInfo->LabelYColor);
+            SetBkMode(hdc, TRANSPARENT);
+
+            GetTextExtentPoint32(hdc, label->Buffer, (ULONG)label->Length / 2, &textSize);
+
+            rect.bottom = height - yLabelMax - PhNormalGraphTextPadding.top;
+            rect.top = rect.bottom - textSize.cy;
+
+            if (rect.top < PhNormalGraphTextPadding.top)
+            {
+                rect.top = PhNormalGraphTextPadding.top;
+                rect.bottom = rect.top + textSize.cy;
+            }
+
+            rect.left = 0;
+            rect.right = width - min((LONG)yLabelDataIndex * 2, width) - PhNormalGraphTextPadding.right;
+            DrawText(hdc, label->Buffer, (ULONG)label->Length / 2, &rect, DT_NOCLIP | DT_RIGHT);
+
+            if (oldFont)
+                SelectObject(hdc, oldFont);
+
+            PhDereferenceObject(label);
+        }
+    }
+
     if (DrawInfo->Text.Buffer)
     {
+        HFONT oldFont = NULL;
+
+        if (DrawInfo->TextFont)
+            oldFont = SelectObject(hdc, DrawInfo->TextFont);
+
         // Fill in the text box.
         SetDCBrushColor(hdc, DrawInfo->TextBoxColor);
         FillRect(hdc, &DrawInfo->TextBoxRect, GetStockObject(DC_BRUSH));
@@ -685,6 +558,9 @@ VOID PhDrawGraphDirect(
         SetTextColor(hdc, DrawInfo->TextColor);
         SetBkMode(hdc, TRANSPARENT);
         DrawText(hdc, DrawInfo->Text.Buffer, (ULONG)DrawInfo->Text.Length / 2, &DrawInfo->TextRect, DT_NOCLIP);
+
+        if (oldFont)
+            SelectObject(hdc, oldFont);
     }
 }
 
@@ -692,11 +568,10 @@ VOID PhDrawGraphDirect(
  * Sets the text in a graphing information structure.
  *
  * \param hdc The DC to perform calculations from.
- * \param DrawInfo A structure which contains graphing information.
- * The structure is modified to contain the new text information.
+ * \param DrawInfo A structure which contains graphing information. The structure is modified to
+ * contain the new text information.
  * \param Text The text.
- * \param Margin The margins of the text box from the edges of the
- * graph.
+ * \param Margin The margins of the text box from the edges of the graph.
  * \param Padding The padding within the text box.
  * \param Align The alignment of the text box.
  */
@@ -709,12 +584,19 @@ VOID PhSetGraphText(
     _In_ ULONG Align
     )
 {
+    HFONT oldFont = NULL;
     SIZE textSize;
     PH_RECTANGLE boxRectangle;
     PH_RECTANGLE textRectangle;
 
+    if (DrawInfo->TextFont)
+        oldFont = SelectObject(hdc, DrawInfo->TextFont);
+
     DrawInfo->Text = *Text;
     GetTextExtentPoint32(hdc, Text->Buffer, (ULONG)Text->Length / 2, &textSize);
+
+    if (oldFont)
+        SelectObject(hdc, oldFont);
 
     // Calculate the box rectangle.
 
@@ -758,7 +640,7 @@ VOID PhpCreateGraphContext(
 
     context->DrawInfo.Width = 3;
     context->DrawInfo.Height = 3;
-    context->DrawInfo.Flags = PH_GRAPH_USE_GRID;
+    context->DrawInfo.Flags = PH_GRAPH_USE_GRID_X;
     context->DrawInfo.Step = 2;
     context->DrawInfo.BackColor = RGB(0xef, 0xef, 0xef);
     context->DrawInfo.LineDataCount = 0;
@@ -770,8 +652,12 @@ VOID PhpCreateGraphContext(
     context->DrawInfo.LineBackColor2 = RGB(0x77, 0x00, 0x00);
     context->DrawInfo.GridColor = RGB(0xc7, 0xc7, 0xc7);
     context->DrawInfo.GridWidth = 20;
-    context->DrawInfo.GridHeight = 40;
-    context->DrawInfo.GridStart = 0;
+    context->DrawInfo.GridHeight = 0.25f;
+    context->DrawInfo.GridXOffset = 0;
+    context->DrawInfo.GridYThreshold = 10;
+    context->DrawInfo.GridBase = 2.0f;
+    context->DrawInfo.LabelYColor = RGB(0x77, 0x77, 0x77);
+    context->DrawInfo.LabelMaxYIndexLimit = -1;
     context->DrawInfo.TextColor = RGB(0x00, 0xff, 0x00);
     context->DrawInfo.TextBoxColor = RGB(0x00, 0x22, 0x00);
 
@@ -801,8 +687,8 @@ static VOID PhpDeleteBufferedContext(
 {
     if (Context->BufferedContext)
     {
-        // The original bitmap must be selected back into the context, otherwise
-        // the bitmap can't be deleted.
+        // The original bitmap must be selected back into the context, otherwise the bitmap can't be
+        // deleted.
         SelectObject(Context->BufferedContext, Context->BufferedOldBitmap);
         DeleteObject(Context->BufferedBitmap);
         DeleteDC(Context->BufferedContext);
@@ -1279,7 +1165,7 @@ LRESULT CALLBACK PhpGraphWndProc(
         {
             LONG increment = (LONG)wParam;
 
-            context->DrawInfo.GridStart += increment;
+            context->DrawInfo.GridXOffset += increment;
         }
         return TRUE;
     case GCM_GETBUFFEREDCONTEXT:
@@ -1375,13 +1261,12 @@ VOID PhDeleteGraphBuffers(
 }
 
 /**
- * Sets up a graphing information structure with information
- * from a graph buffer management structure.
+ * Sets up a graphing information structure with information from a graph buffer management
+ * structure.
  *
  * \param Buffers The buffer management structure.
  * \param DrawInfo The graphing information structure.
- * \param DataCount The number of data points currently required.
- * The buffers are resized if needed.
+ * \param DataCount The number of data points currently required. The buffers are resized if needed.
  */
 VOID PhGetDrawInfoGraphBuffers(
     _Inout_ PPH_GRAPH_BUFFERS Buffers,

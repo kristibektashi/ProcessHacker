@@ -2,7 +2,7 @@
  * Process Hacker -
  *   logging system
  *
- * Copyright (C) 2010 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -20,7 +20,6 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define PH_LOG_PRIVATE
 #include <phapp.h>
 #include <settings.h>
 
@@ -79,6 +78,7 @@ VOID PhpFreeLogEntry(
 PPH_LOG_ENTRY PhpCreateProcessLogEntry(
     _In_ UCHAR Type,
     _In_ HANDLE ProcessId,
+    _In_opt_ HANDLE QueryHandle,
     _In_ PPH_STRING Name,
     _In_opt_ HANDLE ParentProcessId,
     _In_opt_ PPH_STRING ParentName
@@ -97,6 +97,16 @@ PPH_LOG_ENTRY PhpCreateProcessLogEntry(
     {
         PhReferenceObject(ParentName);
         entry->Process.ParentName = ParentName;
+    }
+
+    if (QueryHandle && entry->Type == PH_LOG_ENTRY_PROCESS_DELETE)
+    {
+        PROCESS_BASIC_INFORMATION basicInfo;
+
+        if (NT_SUCCESS(PhGetProcessBasicInformation(QueryHandle, &basicInfo)))
+        {
+            entry->Process.ExitStatus = basicInfo.ExitStatus;
+        }
     }
 
     return entry;
@@ -166,12 +176,13 @@ VOID PhClearLogEntries(
 VOID PhLogProcessEntry(
     _In_ UCHAR Type,
     _In_ HANDLE ProcessId,
+    _In_opt_ HANDLE QueryHandle,
     _In_ PPH_STRING Name,
     _In_opt_ HANDLE ParentProcessId,
     _In_opt_ PPH_STRING ParentName
     )
 {
-    PhpLogEntry(PhpCreateProcessLogEntry(Type, ProcessId, Name, ParentProcessId, ParentName));
+    PhpLogEntry(PhpCreateProcessLogEntry(Type, ProcessId, QueryHandle, Name, ParentProcessId, ParentName));
 }
 
 VOID PhLogServiceEntry(
@@ -201,12 +212,12 @@ PPH_STRING PhFormatLogEntry(
         return PhFormatString(
             L"Process created: %s (%u) started by %s (%u)",
             Entry->Process.Name->Buffer,
-            (ULONG)Entry->Process.ProcessId,
-            PhGetStringOrDefault(Entry->Process.ParentName, L"Unknown Process"),
-            (ULONG)Entry->Process.ParentProcessId
+            HandleToUlong(Entry->Process.ProcessId),
+            PhGetStringOrDefault(Entry->Process.ParentName, L"Unknown process"),
+            HandleToUlong(Entry->Process.ParentProcessId)
             );
     case PH_LOG_ENTRY_PROCESS_DELETE:
-        return PhFormatString(L"Process terminated: %s (%u)", Entry->Process.Name->Buffer, (ULONG)Entry->Process.ProcessId);
+        return PhFormatString(L"Process terminated: %s (%u); exit status 0x%x", Entry->Process.Name->Buffer, HandleToUlong(Entry->Process.ProcessId), Entry->Process.ExitStatus);
     case PH_LOG_ENTRY_SERVICE_CREATE:
         return PhFormatString(L"Service created: %s (%s)", Entry->Service.Name->Buffer, Entry->Service.DisplayName->Buffer);
     case PH_LOG_ENTRY_SERVICE_DELETE:

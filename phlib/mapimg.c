@@ -21,14 +21,14 @@
  */
 
 /*
- * This file contains functions to load and retrieve information for
- * image files (exe, dll). The file format for image files is explained
- * in the PE/COFF specification located at:
+ * This file contains functions to load and retrieve information for image files (exe, dll). The
+ * file format for image files is explained in the PE/COFF specification located at:
  *
  * http://www.microsoft.com/whdc/system/platform/firmware/PECOFF.mspx
  */
 
 #include <ph.h>
+#include <mapimg.h>
 #include <delayimp.h>
 
 VOID PhpMappedImageProbe(
@@ -452,7 +452,7 @@ NTSTATUS PhLoadRemoteMappedImage(
 
     RemoteMappedImage->ViewBase = ViewBase;
 
-    status = PhReadVirtualMemory(
+    status = NtReadVirtualMemory(
         ProcessHandle,
         ViewBase,
         &dosHeader,
@@ -475,7 +475,7 @@ NTSTATUS PhLoadRemoteMappedImage(
     if (ntHeadersOffset == 0 || ntHeadersOffset >= 0x10000000)
         return STATUS_INVALID_IMAGE_FORMAT;
 
-    status = PhReadVirtualMemory(
+    status = NtReadVirtualMemory(
         ProcessHandle,
         PTR_ADD_OFFSET(ViewBase, ntHeadersOffset),
         &ntHeaders,
@@ -511,7 +511,7 @@ NTSTATUS PhLoadRemoteMappedImage(
 
     RemoteMappedImage->NtHeaders = PhAllocate(ntHeadersSize);
 
-    status = PhReadVirtualMemory(
+    status = NtReadVirtualMemory(
         ProcessHandle,
         PTR_ADD_OFFSET(ViewBase, ntHeadersOffset),
         RemoteMappedImage->NtHeaders,

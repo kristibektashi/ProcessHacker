@@ -2,7 +2,7 @@
  * Process Hacker -
  *   memory editor window
  *
- * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,6 +21,7 @@
  */
 
 #include <phapp.h>
+#include <procprv.h>
 #include <settings.h>
 #include <hexedit.h>
 #include <windowsx.h>
@@ -50,6 +51,7 @@ typedef struct _MEMORY_EDITOR_CONTEXT
     ULONG Flags;
 
     BOOLEAN LoadCompleted;
+    BOOLEAN WriteAccess;
 } MEMORY_EDITOR_CONTEXT, *PMEMORY_EDITOR_CONTEXT;
 
 INT NTAPI PhpMemoryEditorCompareFunction(
@@ -189,7 +191,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                 if (processItem = PhReferenceProcessItem(context->ProcessId))
                 {
                     SetWindowText(hwndDlg, PhaFormatString(L"%s (%u) (0x%Ix - 0x%Ix)",
-                        processItem->ProcessName->Buffer, (ULONG)context->ProcessId,
+                        processItem->ProcessName->Buffer, HandleToUlong(context->ProcessId),
                         context->BaseAddress, (ULONG_PTR)context->BaseAddress + context->RegionSize)->Buffer);
                     PhDereferenceObject(processItem);
                 }
@@ -205,19 +207,12 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
 
             if (!NT_SUCCESS(status = PhOpenProcess(
                 &context->ProcessHandle,
-                PROCESS_VM_READ | PROCESS_VM_WRITE,
+                PROCESS_VM_READ,
                 context->ProcessId
                 )))
             {
-                if (!NT_SUCCESS(status = PhOpenProcess(
-                    &context->ProcessHandle,
-                    PROCESS_VM_READ,
-                    context->ProcessId
-                    )))
-                {
-                    PhShowStatus(NULL, L"Unable to open the process", status, 0);
-                    return TRUE;
-                }
+                PhShowStatus(NULL, L"Unable to open the process", status, 0);
+                return TRUE;
             }
 
             context->Buffer = PhAllocatePage(context->RegionSize, NULL);
@@ -228,7 +223,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                 return TRUE;
             }
 
-            if (!NT_SUCCESS(status = PhReadVirtualMemory(
+            if (!NT_SUCCESS(status = NtReadVirtualMemory(
                 context->ProcessHandle,
                 context->BaseAddress,
                 context->Buffer,
@@ -274,8 +269,8 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                 PH_RECTANGLE windowRectangle;
 
                 windowRectangle.Position = PhGetIntegerPairSetting(L"MemEditPosition");
-                windowRectangle.Size = PhGetIntegerPairSetting(L"MemEditSize");
-                PhAdjustRectangleToWorkingArea(hwndDlg, &windowRectangle);
+                windowRectangle.Size = PhGetScalableIntegerPairSetting(L"MemEditSize", TRUE).Pair;
+                PhAdjustRectangleToWorkingArea(NULL, &windowRectangle);
 
                 MoveWindow(hwndDlg, windowRectangle.Left, windowRectangle.Top,
                     windowRectangle.Width, windowRectangle.Height, FALSE);
@@ -285,7 +280,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                 windowRectangle.Top += 20;
 
                 PhSetIntegerPairSetting(L"MemEditPosition", windowRectangle.Position);
-                PhSetIntegerPairSetting(L"MemEditSize", windowRectangle.Size);
+                PhSetScalableIntegerPairSetting2(L"MemEditSize", windowRectangle.Size);
             }
 
             {
@@ -380,8 +375,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                         PPH_STRING fileName;
                         PPH_FILE_STREAM fileStream;
 
-                        fileName = PhGetFileDialogFileName(fileDialog);
-                        PhAutoDereferenceObject(fileName);
+                        fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
 
                         if (NT_SUCCESS(status = PhCreateFileStream(
                             &fileStream,
@@ -444,7 +438,26 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                 {
                     NTSTATUS status;
 
-                    if (!NT_SUCCESS(status = PhWriteVirtualMemory(
+                    if (!context->WriteAccess)
+                    {
+                        HANDLE processHandle;
+
+                        if (!NT_SUCCESS(status = PhOpenProcess(
+                            &processHandle,
+                            PROCESS_VM_READ | PROCESS_VM_WRITE,
+                            context->ProcessId
+                            )))
+                        {
+                            PhShowStatus(hwndDlg, L"Unable to open the process", status, 0);
+                            break;
+                        }
+
+                        if (context->ProcessHandle) NtClose(context->ProcessHandle);
+                        context->ProcessHandle = processHandle;
+                        context->WriteAccess = TRUE;
+                    }
+
+                    if (!NT_SUCCESS(status = NtWriteVirtualMemory(
                         context->ProcessHandle,
                         context->BaseAddress,
                         context->Buffer,
@@ -460,7 +473,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                 {
                     NTSTATUS status;
 
-                    if (!NT_SUCCESS(status = PhReadVirtualMemory(
+                    if (!NT_SUCCESS(status = NtReadVirtualMemory(
                         context->ProcessHandle,
                         context->BaseAddress,
                         context->Buffer,

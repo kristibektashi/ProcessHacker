@@ -20,7 +20,8 @@
  * along with Process Hacker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <phgui.h>
+#include <ph.h>
+#include <guisup.h>
 #include <treenew.h>
 #include <cpysave.h>
 
@@ -88,11 +89,11 @@ VOID PhaCreateTextTable(
     PPH_STRING **table;
     ULONG i;
 
-    table = PhAutoDereferenceObject(PhCreateAlloc(sizeof(PPH_STRING *) * Rows));
+    table = PH_AUTO(PhCreateAlloc(sizeof(PPH_STRING *) * Rows));
 
     for (i = 0; i < Rows; i++)
     {
-        table[i] = PhAutoDereferenceObject(PhCreateAlloc(sizeof(PPH_STRING) * Columns));
+        table[i] = PH_AUTO(PhCreateAlloc(sizeof(PPH_STRING) * Columns));
         memset(table[i], 0, sizeof(PPH_STRING) * Columns);
     }
 
@@ -128,7 +129,7 @@ PPH_LIST PhaFormatTextTable(
     {
         // Create the tab count array.
 
-        tabCount = PhAutoDereferenceObject(PhCreateAlloc(sizeof(ULONG) * Columns));
+        tabCount = PH_AUTO(PhCreateAlloc(sizeof(ULONG) * Columns));
         memset(tabCount, 0, sizeof(ULONG) * Columns); // zero all values
 
         for (i = 0; i < Rows; i++)
@@ -386,7 +387,7 @@ PPH_LIST PhGetGenericTreeNewLines(
         {
             for (j = 0; j < columns; j++)
             {
-                table[i + 1][j] = PhAutoDereferenceObject(PhReferenceEmptyString());
+                table[i + 1][j] = PH_AUTO(PhReferenceEmptyString());
             }
         }
     }
@@ -478,7 +479,7 @@ PPH_STRING PhaGetListViewItemText(
     }
 
     PhTrimToNullTerminatorString(buffer);
-    PhAutoDereferenceObject(buffer);
+    PH_AUTO(buffer);
 
     return buffer;
 }

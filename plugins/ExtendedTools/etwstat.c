@@ -23,18 +23,14 @@
 #include "exttools.h"
 #include "etwmon.h"
 
-VOID NTAPI ProcessesUpdatedCallback(
+VOID NTAPI EtEtwProcessesUpdatedCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     );
 
-VOID NTAPI NetworkItemsUpdatedCallback(
+VOID NTAPI EtEtwNetworkItemsUpdatedCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
-    );
-
-VOID EtpUpdateProcessInformation(
-    VOID
     );
 
 static PH_CALLBACK_REGISTRATION EtpProcessesUpdatedCallbackRegistration;
@@ -90,13 +86,13 @@ VOID EtEtwStatisticsInitialization(
 
         PhRegisterCallback(
             &PhProcessesUpdatedEvent,
-            ProcessesUpdatedCallback,
+            EtEtwProcessesUpdatedCallback,
             NULL,
             &EtpProcessesUpdatedCallbackRegistration
             );
         PhRegisterCallback(
             &PhNetworkItemsUpdatedEvent,
-            NetworkItemsUpdatedCallback,
+            EtEtwNetworkItemsUpdatedCallback,
             NULL,
             &EtpNetworkItemsUpdatedCallbackRegistration
             );
@@ -212,7 +208,7 @@ VOID EtProcessNetworkEvent(
     }
 }
 
-static VOID NTAPI ProcessesUpdatedCallback(
+VOID NTAPI EtEtwProcessesUpdatedCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -229,7 +225,7 @@ static VOID NTAPI ProcessesUpdatedCallback(
     // event headers for disk events. We need to update our process information since
     // etwmon uses our EtThreadIdToProcessId function.
     if (WindowsVersion >= WINDOWS_8)
-        EtpUpdateProcessInformation();
+        EtUpdateProcessInformation();
 
     // ETW is extremely lazy when it comes to flushing buffers, so we must do it
     // manually.
@@ -328,7 +324,7 @@ static VOID NTAPI EtpInvalidateNetworkNode(
     PhDereferenceObject(networkItem);
 }
 
-static VOID NTAPI NetworkItemsUpdatedCallback(
+VOID NTAPI EtEtwNetworkItemsUpdatedCallback(
     _In_opt_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
@@ -368,7 +364,7 @@ static VOID NTAPI NetworkItemsUpdatedCallback(
     }
 }
 
-VOID EtpUpdateProcessInformation(
+VOID EtUpdateProcessInformation(
     VOID
     )
 {
@@ -393,10 +389,13 @@ HANDLE EtThreadIdToProcessId(
     ULONG i;
     HANDLE processId;
 
-    if (!EtpProcessInformation)
-        return NULL;
-
     PhAcquireQueuedLockShared(&EtpProcessInformationLock);
+
+    if (!EtpProcessInformation)
+    {
+        PhReleaseQueuedLockShared(&EtpProcessInformationLock);
+        return NULL;
+    }
 
     process = PH_FIRST_PROCESS(EtpProcessInformation);
 

@@ -2,7 +2,7 @@
  * Process Hacker -
  *   log window
  *
- * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2010-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -235,7 +235,7 @@ INT_PTR CALLBACK PhpLogDlgProc(
                     PhSetClipboardString(hwndDlg, &string->sr);
                     PhDereferenceObject(string);
 
-                    SetFocus(ListViewHandle);
+                    SendMessage(hwndDlg, WM_NEXTDLGCTL, (WPARAM)ListViewHandle, TRUE);
                 }
                 break;
             case IDC_SAVE:
@@ -259,8 +259,7 @@ INT_PTR CALLBACK PhpLogDlgProc(
                         PPH_FILE_STREAM fileStream;
                         PPH_STRING string;
 
-                        fileName = PhGetFileDialogFileName(fileDialog);
-                        PhAutoDereferenceObject(fileName);
+                        fileName = PH_AUTO(PhGetFileDialogFileName(fileDialog));
 
                         if (NT_SUCCESS(status = PhCreateFileStream(
                             &fileStream,

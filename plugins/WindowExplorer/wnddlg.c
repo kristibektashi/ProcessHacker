@@ -2,6 +2,7 @@
  * Process Hacker Window Explorer -
  *   window tree dialog
  *
+ * Copyright (C) 2016 dmex
  * Copyright (C) 2011 wj32
  *
  * This file is part of Process Hacker.
@@ -73,7 +74,7 @@ VOID WepShowWindowsDialogCallback(
     hwnd = CreateDialogParam(
         PluginInstance->DllBase,
         MAKEINTRESOURCE(IDD_WNDLIST),
-        WE_PhMainWndHandle,
+        NULL,
         WepWindowsDlgProc,
         (LPARAM)context
         );
@@ -251,10 +252,6 @@ PPH_STRING WepGetWindowTitleForSelector(
     _In_ PWE_WINDOW_SELECTOR Selector
     )
 {
-    PPH_STRING title;
-    CLIENT_ID clientId;
-    PPH_STRING clientIdName;
-
     switch (Selector->Type)
     {
     case WeWindowSelectorAll:
@@ -269,14 +266,12 @@ PPH_STRING WepGetWindowTitleForSelector(
         break;
     case WeWindowSelectorProcess:
         {
+            CLIENT_ID clientId;
+
             clientId.UniqueProcess = Selector->Process.ProcessId;
             clientId.UniqueThread = NULL;
-            clientIdName = PhGetClientIdName(&clientId);
 
-            title = PhConcatStrings2(L"Windows - ", clientIdName->Buffer);
-            PhDereferenceObject(clientIdName);
-
-            return title;
+            return PhConcatStrings2(L"Windows - ", PH_AUTO_T(PH_STRING, PhGetClientIdName(&clientId))->Buffer);
         }
         break;
     case WeWindowSelectorDesktop:
@@ -345,8 +340,8 @@ INT_PTR CALLBACK WepWindowsDlgProc(
             // Set up the window position and size.
 
             windowRectangle.Position = PhGetIntegerPairSetting(SETTING_NAME_WINDOWS_WINDOW_POSITION);
-            windowRectangle.Size = PhGetIntegerPairSetting(SETTING_NAME_WINDOWS_WINDOW_SIZE);
-            PhAdjustRectangleToWorkingArea(hwndDlg, &windowRectangle);
+            windowRectangle.Size = PhGetScalableIntegerPairSetting(SETTING_NAME_WINDOWS_WINDOW_SIZE, TRUE).Pair;
+            PhAdjustRectangleToWorkingArea(NULL, &windowRectangle);
 
             MoveWindow(hwndDlg, windowRectangle.Left, windowRectangle.Top,
                 windowRectangle.Width, windowRectangle.Height, FALSE);
@@ -356,9 +351,8 @@ INT_PTR CALLBACK WepWindowsDlgProc(
             windowRectangle.Top += 20;
             PhSetIntegerPairSetting(SETTING_NAME_WINDOWS_WINDOW_POSITION, windowRectangle.Position);
 
-            windowTitle = WepGetWindowTitleForSelector(&context->Selector);
+            windowTitle = PH_AUTO(WepGetWindowTitleForSelector(&context->Selector));
             SetWindowText(hwndDlg, windowTitle->Buffer);
-            PhDereferenceObject(windowTitle);
 
             WepRefreshWindows(context);
         }
@@ -676,7 +670,7 @@ INT_PTR CALLBACK WepWindowsDlgProc(
                     PWE_WINDOW_NODE selectedNode;
 
                     if (selectedNode = WeGetSelectedWindowNode(&context->TreeContext))
-                        WeShowWindowProperties(WE_PhMainWndHandle, selectedNode->WindowHandle);
+                        WeShowWindowProperties(hwndDlg, selectedNode->WindowHandle);
                 }
                 break;
             case ID_WINDOW_COPY:

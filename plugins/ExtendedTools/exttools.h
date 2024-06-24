@@ -3,6 +3,10 @@
 
 #define PHNT_VERSION PHNT_VISTA
 #include <phdk.h>
+#include <windowsx.h>
+#include <math.h>
+
+#include "resource.h"
 
 extern PPH_PLUGIN PluginInstance;
 extern LIST_ENTRY EtProcessBlockListHead;
@@ -17,6 +21,12 @@ extern HWND NetworkTreeNewHandle;
 #define SETTING_NAME_ENABLE_GPU_MONITOR (PLUGIN_NAME L".EnableGpuMonitor")
 #define SETTING_NAME_GPU_NODE_BITMAP (PLUGIN_NAME L".GpuNodeBitmap")
 #define SETTING_NAME_GPU_LAST_NODE_COUNT (PLUGIN_NAME L".GpuLastNodeCount")
+
+#define ET_SCALE_DPI(Value) PhMultiplyDivide(Value, PhGlobalDpi, 96)
+
+// Graph update message
+
+#define UPDATE_MSG (WM_APP + 1)
 
 // Process icon
 

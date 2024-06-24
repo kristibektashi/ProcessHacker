@@ -2,7 +2,7 @@
  * Process Hacker -
  *   mini information window
  *
- * Copyright (C) 2015 wj32
+ * Copyright (C) 2015-2016 wj32
  *
  * This file is part of Process Hacker.
  *
@@ -21,9 +21,12 @@
  */
 
 #include <phapp.h>
+#include <miniinfo.h>
+#include <procprv.h>
+#include <proctree.h>
 #include <settings.h>
 #include <emenu.h>
-#include <miniinfo.h>
+#include <actions.h>
 #include <phplug.h>
 #include <notifico.h>
 #include <windowsx.h>
@@ -146,7 +149,7 @@ VOID PhPinMiniInformation(
             MinimumSize.left = 0;
             MinimumSize.top = 0;
             MinimumSize.right = 210;
-            MinimumSize.bottom = 140;
+            MinimumSize.bottom = 60;
             MapDialogRect(PhMipWindow, &MinimumSize);
         }
 
@@ -181,6 +184,9 @@ VOID PhPinMiniInformation(
         if ((Flags & PH_MINIINFO_ACTIVATE_WINDOW) && IsWindowVisible(PhMipContainerWindow))
             SetActiveWindow(PhMipContainerWindow);
     }
+
+    if (Flags & PH_MINIINFO_ACTIVATE_WINDOW)
+        SetForegroundWindow(PhMipContainerWindow);
 
     if (SectionName && (!PhMipPinned || !(Flags & PH_MINIINFO_DONT_CHANGE_SECTION_IF_PINNED)))
     {
@@ -436,14 +442,14 @@ VOID PhMipOnInitDialog(
     VOID
     )
 {
-    HBITMAP cog;
-    HBITMAP pin;
+    HICON cog;
+    HICON pin;
 
-    cog = PH_LOAD_SHARED_IMAGE(MAKEINTRESOURCE(IDB_COG), IMAGE_BITMAP);
-    SET_BUTTON_BITMAP(PhMipWindow, IDC_OPTIONS, cog);
+    cog = PH_LOAD_SHARED_ICON_SMALL(MAKEINTRESOURCE(IDI_COG));
+    SET_BUTTON_ICON(PhMipWindow, IDC_OPTIONS, cog);
 
-    pin = PH_LOAD_SHARED_IMAGE(MAKEINTRESOURCE(IDB_PIN), IMAGE_BITMAP);
-    SET_BUTTON_BITMAP(PhMipWindow, IDC_PIN, pin);
+    pin = PH_LOAD_SHARED_ICON_SMALL(MAKEINTRESOURCE(IDI_PIN));
+    SET_BUTTON_ICON(PhMipWindow, IDC_PIN, pin);
 
     PhInitializeLayoutManager(&PhMipLayoutManager, PhMipWindow);
     PhAddLayoutItem(&PhMipLayoutManager, GetDlgItem(PhMipWindow, IDC_LAYOUT), NULL,
@@ -475,8 +481,8 @@ VOID PhMipOnShowWindow(
     SendMessage(GetDlgItem(PhMipWindow, IDC_SECTION), WM_SETFONT, (WPARAM)CurrentParameters.MediumFont, FALSE);
 
     PhMipCreateInternalListSection(L"CPU", 0, PhMipCpuListSectionCallback);
-    PhMipCreateInternalListSection(L"Commit Charge", 0, PhMipCommitListSectionCallback);
-    PhMipCreateInternalListSection(L"Physical Memory", 0, PhMipPhysicalListSectionCallback);
+    PhMipCreateInternalListSection(L"Commit charge", 0, PhMipCommitListSectionCallback);
+    PhMipCreateInternalListSection(L"Physical memory", 0, PhMipPhysicalListSectionCallback);
     PhMipCreateInternalListSection(L"I/O", 0, PhMipIoListSectionCallback);
 
     if (PhPluginsEnabled)
@@ -761,7 +767,7 @@ VOID PhMipInitializeParameters(
 
     hdc = GetDC(PhMipWindow);
 
-    logFont.lfHeight -= MulDiv(2, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+    logFont.lfHeight -= PhMultiplyDivide(2, GetDeviceCaps(hdc, LOGPIXELSY), 72);
     CurrentParameters.MediumFont = CreateFontIndirect(&logFont);
 
     originalFont = SelectObject(hdc, CurrentParameters.Font);
@@ -918,13 +924,13 @@ VOID PhMipUpdateSectionText(
 {
     if (Section->Text)
     {
-        SetDlgItemText(PhMipWindow, IDC_SECTION, ((PPH_STRING)PhAutoDereferenceObject(
-            PhConcatStringRef2(&DownArrowPrefix, &Section->Text->sr)))->Buffer);
+        SetDlgItemText(PhMipWindow, IDC_SECTION,
+            PH_AUTO_T(PH_STRING, PhConcatStringRef2(&DownArrowPrefix, &Section->Text->sr))->Buffer);
     }
     else
     {
-        SetDlgItemText(PhMipWindow, IDC_SECTION, ((PPH_STRING)PhAutoDereferenceObject(
-            PhConcatStringRef2(&DownArrowPrefix, &Section->Name)))->Buffer);
+        SetDlgItemText(PhMipWindow, IDC_SECTION,
+            PH_AUTO_T(PH_STRING, PhConcatStringRef2(&DownArrowPrefix, &Section->Name))->Buffer);
     }
 }
 
@@ -1046,7 +1052,7 @@ VOID PhMipShowSectionMenu(
         menuItem = PhCreateEMenuItem(
             (section == CurrentSection ? (PH_EMENU_CHECKED | PH_EMENU_RADIOCHECK) : 0),
             0,
-            ((PPH_STRING)PhAutoDereferenceObject(PhCreateString2(&section->Name)))->Buffer,
+            PH_AUTO_T(PH_STRING, PhCreateString2(&section->Name))->Buffer,
             NULL,
             section
             );
@@ -1394,6 +1400,12 @@ PPH_MIP_GROUP_NODE PhMipAddGroupNode(
     _In_ PPH_PROCESS_GROUP ProcessGroup
     )
 {
+    // This is an undocumented function exported by user32.dll that
+    // retrieves the hung window represented by a ghost window.
+    static HWND (WINAPI *HungWindowFromGhostWindow_I)(
+        _In_ HWND hWnd
+        );
+
     PPH_MIP_GROUP_NODE node;
 
     node = PhAllocate(sizeof(PH_MIP_GROUP_NODE));
@@ -1403,6 +1415,17 @@ PPH_MIP_GROUP_NODE PhMipAddGroupNode(
     node->ProcessGroup = ProcessGroup;
     node->RepresentativeProcessId = ProcessGroup->Representative->ProcessId;
     node->RepresentativeCreateTime = ProcessGroup->Representative->CreateTime;
+    node->RepresentativeIsHung = ProcessGroup->WindowHandle && IsHungAppWindow(ProcessGroup->WindowHandle);
+
+    if (node->RepresentativeIsHung)
+    {
+        if (!HungWindowFromGhostWindow_I)
+            HungWindowFromGhostWindow_I = PhGetModuleProcAddress(L"user32.dll", "HungWindowFromGhostWindow");
+
+        // Make sure this is a real hung window, not a ghost window.
+        if (HungWindowFromGhostWindow_I && HungWindowFromGhostWindow_I(ProcessGroup->WindowHandle))
+            node->RepresentativeIsHung = FALSE;
+    }
 
     PhAddItemList(ListSection->NodeList, node);
 
@@ -1552,6 +1575,15 @@ BOOLEAN PhMipListSectionTreeNewCallback(
 
             getTitleText.TitleColor = originalTextColor;
             getTitleText.SubtitleColor = GetSysColor(COLOR_GRAYTEXT);
+
+            // Special text for hung windows
+            if (node->RepresentativeIsHung)
+            {
+                static PH_STRINGREF hungPrefix = PH_STRINGREF_INIT(L"(Not responding) ");
+
+                PhMoveReference(&getTitleText.Title, PhConcatStringRef2(&hungPrefix, &getTitleText.Title->sr));
+                getTitleText.TitleColor = RGB(0xff, 0x00, 0x00);
+            }
 
             listSection->Callback(listSection, MiListSectionGetTitleText, &getTitleText, NULL);
 
@@ -1758,7 +1790,7 @@ VOID PhMipShowListSectionContextMenu(
     if (selectedNode->ProcessGroup->Processes->Count != 1)
     {
         if (item = PhFindEMenuItem(menu, 0, NULL, ID_PROCESS_GOTOPROCESS))
-            PhModifyEMenuItem(item, PH_EMENU_MODIFY_TEXT, 0, L"&Go to Processes", NULL);
+            PhModifyEMenuItem(item, PH_EMENU_MODIFY_TEXT, 0, L"&Go to processes", NULL);
     }
 
     memset(&menuInfo, 0, sizeof(PH_MINIINFO_LIST_SECTION_MENU_INFORMATION));
@@ -1958,7 +1990,7 @@ BOOLEAN PhMipCommitListSectionCallback(
             PhInitFormatF(&format[3], commitFraction * 100, 2);
             PhInitFormatS(&format[4], L"%)");
             ListSection->Section->Parameters->SetSectionText(ListSection->Section,
-                PhAutoDereferenceObject(PhFormat(format, 5, 96)));
+                PH_AUTO(PhFormat(format, 5, 96)));
         }
         break;
     case MiListSectionSortProcessList:
@@ -1997,7 +2029,7 @@ BOOLEAN PhMipCommitListSectionCallback(
             ULONG64 privateBytes = *(PULONG64)getUsageText->SortData->UserData;
 
             PhMoveReference(&getUsageText->Line1, PhFormatSize(privateBytes, -1));
-            PhMoveReference(&getUsageText->Line2, PhCreateString(L"Private Bytes"));
+            PhMoveReference(&getUsageText->Line2, PhCreateString(L"Private bytes"));
             getUsageText->Line2Color = GetSysColor(COLOR_GRAYTEXT);
         }
         return TRUE;
@@ -2049,7 +2081,7 @@ BOOLEAN PhMipPhysicalListSectionCallback(
             PhInitFormatF(&format[3], physicalFraction * 100, 2);
             PhInitFormatS(&format[4], L"%)");
             ListSection->Section->Parameters->SetSectionText(ListSection->Section,
-                PhAutoDereferenceObject(PhFormat(format, 5, 96)));
+                PH_AUTO(PhFormat(format, 5, 96)));
         }
         break;
     case MiListSectionSortProcessList:
@@ -2088,7 +2120,7 @@ BOOLEAN PhMipPhysicalListSectionCallback(
             ULONG64 privateBytes = *(PULONG64)getUsageText->SortData->UserData;
 
             PhMoveReference(&getUsageText->Line1, PhFormatSize(privateBytes, -1));
-            PhMoveReference(&getUsageText->Line2, PhCreateString(L"Working Set"));
+            PhMoveReference(&getUsageText->Line2, PhCreateString(L"Working set"));
             getUsageText->Line2Color = GetSysColor(COLOR_GRAYTEXT);
         }
         return TRUE;
@@ -2145,7 +2177,7 @@ BOOLEAN PhMipIoListSectionCallback(
             format[5].Type |= FormatUsePrecision;
             format[5].Precision = 0;
             ListSection->Section->Parameters->SetSectionText(ListSection->Section,
-                PhAutoDereferenceObject(PhFormat(format, 6, 80)));
+                PH_AUTO(PhFormat(format, 6, 80)));
         }
         break;
     case MiListSectionSortProcessList:
