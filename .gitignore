@@ -105,8 +105,6 @@ Desktop.ini
 build/Installer/*.exe
 ProcessHacker/include/phapprev.h
 ProcessHacker/sdk/phapppub.h
-plugins-extra/
-sdk/
 
 KProcessHacker/*.log
 KProcessHacker/*.err
