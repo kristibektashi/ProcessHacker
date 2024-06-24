@@ -1,8 +1,8 @@
 [submodule "plugins-extra"]
 	path = plugins-extra
 	url = https://github.com/kristibektashi/plugins-extra.git
-	branch = 2.36
+	branch = 2.36-arm
 [submodule "sdk"]
 	path = sdk
 	url = https://github.com/kristibektashi/ProcessHacker-SDK.git
-	branch = 2.36
+	branch = 2.36-arm
