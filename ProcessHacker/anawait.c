@@ -168,7 +168,7 @@ VOID PhUiAnalyzeWaitThread(
         SymbolProvider->ProcessHandle,
         &clientId,
         SymbolProvider,
-        PH_WALK_I386_STACK,
+        PH_WALK_I386_STACK | PH_WALK_ARM_STACK,
         PhpWalkThreadStackAnalyzeCallback,
         &context
         );

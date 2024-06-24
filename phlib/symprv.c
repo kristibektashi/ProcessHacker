@@ -1695,7 +1695,7 @@ NTSTATUS PhWalkThreadStack(
 
 SkipAmd64Stack:
 #endif
-
+#ifndef _M_ARM
     // x86/WOW64 stack walk.
     if (Flags & PH_WALK_I386_STACK)
     {
@@ -1772,6 +1772,64 @@ SkipAmd64Stack:
     }
 
 SkipI386Stack:
+#endif
+
+#if defined _ARM_
+    // ARM call stack
+    if (Flags & PH_WALK_ARM_STACK)
+    {
+        STACKFRAME64 stackFrame;
+        PH_THREAD_STACK_FRAME threadStackFrame;
+        CONTEXT context;
+
+        context.ContextFlags = CONTEXT_ALL;
+
+        if (!NT_SUCCESS(status = PhGetThreadContext(
+            ThreadHandle,
+            &context
+            )))
+            goto SkipARMStack;
+
+        memset(&stackFrame, 0, sizeof(STACKFRAME64));
+        stackFrame.AddrPC.Mode = AddrModeFlat;
+        stackFrame.AddrPC.Offset = context.Pc;
+        stackFrame.AddrStack.Mode = AddrModeFlat;
+        stackFrame.AddrStack.Offset = context.Sp;
+        stackFrame.AddrFrame.Mode = AddrModeFlat;
+        stackFrame.AddrFrame.Offset = context.R11; //r11 is the frame pointer
+
+        while (TRUE)
+        {
+            if (!PhStackWalk(
+                IMAGE_FILE_MACHINE_ARMNT,
+                ProcessHandle,
+                ThreadHandle,
+                &stackFrame,
+                &context,
+                SymbolProvider,
+                NULL,
+                NULL,
+                NULL,
+                NULL
+                ))
+                break;
+
+            // If we have an invalid instruction pointer, break.
+            if (!stackFrame.AddrPC.Offset || stackFrame.AddrPC.Offset == -1)
+                break;
+
+            // Convert the stack frame and execute the callback.
+
+            PhpConvertStackFrame(&stackFrame, PH_THREAD_STACK_FRAME_ARM, &threadStackFrame);
+
+            if (!Callback(&threadStackFrame, Context))
+                goto ResumeExit;
+
+        }
+    }
+
+SkipARMStack:
+#endif
 
 ResumeExit:
     if (suspended)

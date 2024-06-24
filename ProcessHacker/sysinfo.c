@@ -2714,6 +2714,38 @@ VOID PhSipGetCpuBrandString(
     _Out_writes_(49) PWSTR BrandString
     )
 {
+#if defined _M_ARM
+    static PH_STRINGREF cpuKeyName = PH_STRINGREF_INIT(L"Hardware\\Description\\System\\CentralProcessor\\0");
+    HANDLE cpuKeyHandle;
+    PPH_STRING cpuString = NULL;
+
+    //just give it a dummy value  "ARM"
+    BrandString[0] = L'A';
+    BrandString[1] = L'R';
+    BrandString[2] = L'M';
+    BrandString[3] = 0;
+
+    //We don't have an intrinsic eqv to cpuid on ARM.. so use the registry
+    if (NT_SUCCESS(PhOpenKey(
+        &cpuKeyHandle,
+        KEY_READ,
+        PH_KEY_LOCAL_MACHINE,
+        &cpuKeyName,
+        0
+        )))
+    {
+        cpuString = PhQueryRegistryString(cpuKeyHandle, L"ProcessorNameString");
+        NtClose(cpuKeyHandle);
+    }
+
+    if (!cpuString)
+        return;
+
+    wcsncpy(BrandString, cpuString->Buffer, 48);
+
+    PhDereferenceObject(cpuString);
+
+#else
     ULONG brandString[4 * 3];
 
     __cpuid(&brandString[0], 0x80000002);
@@ -2721,6 +2753,7 @@ VOID PhSipGetCpuBrandString(
     __cpuid(&brandString[8], 0x80000004);
 
     PhZeroExtendToUtf16Buffer((PSTR)brandString, 48, BrandString);
+#endif
     BrandString[48] = 0;
 }
 

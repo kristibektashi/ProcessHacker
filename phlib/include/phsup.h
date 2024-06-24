@@ -246,7 +246,8 @@ typedef int (__cdecl *PC_COMPARE_FUNCTION)(void *, const void *, const void *);
 
 // Synchronization
 
-#ifndef _WIN64
+//#ifndef _WIN64
+#ifdef _M_IX86
 
 #ifndef _InterlockedCompareExchangePointer
 void *_InterlockedCompareExchangePointer(

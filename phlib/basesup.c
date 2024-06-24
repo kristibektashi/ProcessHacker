@@ -528,6 +528,7 @@ SIZE_T PhCountStringZ(
     _In_ PWSTR String
     )
 {
+#ifndef _M_ARM
     if (PhpVectorLevel >= PH_VECTOR_LEVEL_SSE2)
     {
         PWSTR p;
@@ -566,6 +567,7 @@ SIZE_T PhCountStringZ(
         }
     }
     else
+#endif
     {
         return wcslen(String);
     }
@@ -1238,7 +1240,7 @@ BOOLEAN PhEqualStringRef(
 
     s1 = String1->Buffer;
     s2 = String2->Buffer;
-
+#ifndef _M_ARM
     if (PhpVectorLevel >= PH_VECTOR_LEVEL_SSE2)
     {
         length = l1 / 16;
@@ -1279,6 +1281,7 @@ BOOLEAN PhEqualStringRef(
         l1 = (l1 & 15) / sizeof(WCHAR);
     }
     else
+#endif
     {
         length = l1 / sizeof(ULONG_PTR);
 
@@ -1377,6 +1380,7 @@ ULONG_PTR PhFindCharInStringRef(
 
     if (!IgnoreCase)
     {
+#ifndef _M_ARM
         if (PhpVectorLevel >= PH_VECTOR_LEVEL_SSE2)
         {
             SIZE_T length16;
@@ -1406,7 +1410,7 @@ ULONG_PTR PhFindCharInStringRef(
                 } while (--length16 != 0);
             }
         }
-
+#endif
         if (length != 0)
         {
             do
@@ -1463,6 +1467,7 @@ ULONG_PTR PhFindLastCharInStringRef(
 
     if (!IgnoreCase)
     {
+#ifndef _M_ARM
         if (PhpVectorLevel >= PH_VECTOR_LEVEL_SSE2)
         {
             SIZE_T length16;
@@ -1495,7 +1500,7 @@ ULONG_PTR PhFindLastCharInStringRef(
                 buffer += 16 / sizeof(WCHAR);
             }
         }
-
+#endif
         if (length != 0)
         {
             buffer--;
@@ -5720,11 +5725,14 @@ VOID PhFillMemoryUlong(
     _In_ SIZE_T Count
     )
 {
-    __m128i pattern;
+
+#ifndef _M_ARM
     SIZE_T count;
+    __m128i pattern;
 
     if (PhpVectorLevel < PH_VECTOR_LEVEL_SSE2)
     {
+#endif
         if (Count != 0)
         {
             do
@@ -5734,6 +5742,7 @@ VOID PhFillMemoryUlong(
         }
 
         return;
+#ifndef _M_ARM
     }
 
     if ((ULONG_PTR)Memory & 0xf)
@@ -5788,6 +5797,7 @@ VOID PhFillMemoryUlong(
         *Memory++ = Value;
         break;
     }
+#endif
 }
 
 VOID FASTCALL PhxfFillMemoryUlong(PULONG Memory, ULONG Value, ULONG Count)
@@ -5808,15 +5818,19 @@ VOID PhDivideSinglesBySingle(
     _In_ SIZE_T Count
     )
 {
+
+#ifndef _M_ARM
     PFLOAT endA;
     __m128 b;
 
     if (PhpVectorLevel < PH_VECTOR_LEVEL_SSE2)
     {
+#endif
         while (Count--)
             *A++ /= B;
 
         return;
+#ifndef _M_ARM
     }
 
     if ((ULONG_PTR)A & 0xf)
@@ -5877,6 +5891,7 @@ VOID PhDivideSinglesBySingle(
         *A++ /= B;
         break;
     }
+#endif
 }
 
 VOID FASTCALL PhxfDivideSingle2U(PFLOAT A, FLOAT B, ULONG Count)

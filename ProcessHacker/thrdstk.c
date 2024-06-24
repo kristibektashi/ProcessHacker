@@ -559,7 +559,7 @@ static NTSTATUS PhpRefreshThreadStackThreadStart(
         control.u.WalkStack.ThreadHandle = threadStackContext->ThreadHandle;
         control.u.WalkStack.ProcessHandle = threadStackContext->SymbolProvider->ProcessHandle;
         control.u.WalkStack.ClientId = &clientId;
-        control.u.WalkStack.Flags = PH_WALK_I386_STACK | PH_WALK_AMD64_STACK | PH_WALK_KERNEL_STACK;
+        control.u.WalkStack.Flags = PH_WALK_I386_STACK | PH_WALK_AMD64_STACK | PH_WALK_ARM_STACK | PH_WALK_KERNEL_STACK;
         control.u.WalkStack.Callback = PhpWalkThreadStackCallback;
         control.u.WalkStack.CallbackContext = threadStackContext;
         PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackThreadStackControl), &control);
@@ -586,7 +586,7 @@ static NTSTATUS PhpRefreshThreadStackThreadStart(
             threadStackContext->SymbolProvider->ProcessHandle,
             &clientId,
             threadStackContext->SymbolProvider,
-            PH_WALK_I386_STACK | PH_WALK_AMD64_STACK | PH_WALK_KERNEL_STACK,
+            PH_WALK_I386_STACK | PH_WALK_AMD64_STACK | PH_WALK_ARM_STACK | PH_WALK_KERNEL_STACK,
             PhpWalkThreadStackCallback,
             threadStackContext
             );

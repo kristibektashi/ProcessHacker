@@ -268,7 +268,7 @@ VOID PredictAddressesFromClrData(
     _Out_ PVOID *PredictedEsp
     )
 {
-#ifdef _WIN64
+#if defined(_WIN64) || defined(_M_ARM)
     *PredictedEip = NULL;
     *PredictedEbp = NULL;
     *PredictedEsp = NULL;

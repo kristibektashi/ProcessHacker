@@ -26,6 +26,9 @@
 #include <memsrch.h>
 #include "pcre/pcre.h"
 #include <windowsx.h>
+#ifdef _M_ARM
+#include <malloc.h>
+#endif
 
 #define FILTER_CONTAINS 1
 #define FILTER_CONTAINS_IGNORECASE 2

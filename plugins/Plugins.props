@@ -34,7 +34,7 @@
             <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
         </ClCompile>
         <Link>
-            <AdditionalDependencies>ProcessHacker.lib;ntdll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+            <AdditionalDependencies>ProcessHacker.lib;ntdll.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
             <GenerateDebugInformation>true</GenerateDebugInformation>
             <SubSystem>Windows</SubSystem>
         </Link>
@@ -92,6 +92,15 @@
             <MinimumRequiredVersion>5.02</MinimumRequiredVersion>
             <TargetMachine>MachineX64</TargetMachine>
         </Link>
+    </ItemDefinitionGroup>
+
+    <!-- ARM Builds -->
+    <ItemDefinitionGroup Condition="'$(Platform)'=='ARM'">
+      <Link>
+        <AdditionalLibraryDirectories>../../sdk/lib/arm;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+        <MinimumRequiredVersion>5.02</MinimumRequiredVersion>
+        <TargetMachine>MachineARM</TargetMachine>
+      </Link>
     </ItemDefinitionGroup>
 
     <!-- Debug|Win32 Builds -->
